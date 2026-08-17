@@ -92,7 +92,7 @@ class Workout:
         return sum(interval.duration for interval in self.intervals)
 
     @classmethod
-    def from_dict(cls, data: ZwoNode) -> "Workout":
+    def from_dict(cls, data: dict) -> "Workout":
         if not isinstance(data, dict):
             raise ValueError("Workout data must be a dict")
         return cls(
