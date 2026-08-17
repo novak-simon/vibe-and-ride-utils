@@ -1,5 +1,4 @@
-from .model import Interval, Workout
-from .scheduler import WorkoutScheduler, WorkoutSchedulerError, WorkoutState, WorkoutStatus
+from ..models.workout_model import Interval, Workout
 
 __all__ = [
     "Interval",

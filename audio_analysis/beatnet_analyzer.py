@@ -5,9 +5,9 @@ import librosa
 from typing import List, Optional, Any
 from BeatNet.BeatNet import BeatNet
 
-from .model import AudioAnalysis
-from helper_methods.analysis_methods import save_in_downloads_as
+from audio_analysis.analysis_methods import save_in_downloads_as
 
+from models.audio_analysis_model import AudioAnalysis
 
 class BeatnetAnalyzer:
     """

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from analysis.service import AudioAnalysisService
+from audio_analysis.service import AudioAnalysisService
 from database.methods import _effective_client
 from database.admin_client import get_admin_supabase
 
@@ -34,11 +34,7 @@ def main() -> None:
 
     client = _effective_client(client=admin_client)
     service = AudioAnalysisService(client)
-    if args.id == 0:
-        service.analyze_batch(limit=args.limit, force=args.force)
-    else:
-        service.analyze_by_id(id=args.id)
-
+    service.analyze(limit=args.limit, force=args.force, song_id=args.id)
 
 if __name__ == "__main__":
     main()

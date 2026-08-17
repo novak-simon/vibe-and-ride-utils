@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+from models.model_methods import _optional_float_list, _optional_int, _optional_int_or_none, _optional_str, _str_to_list, _str_to_dict, _optional_float
 
-from helper_methods.model_methods import _optional_float_list, _optional_int, _optional_int_or_none, _optional_str, _str_to_list, _str_to_dict, _optional_float
 
 @dataclass(frozen=True)
 class Song:

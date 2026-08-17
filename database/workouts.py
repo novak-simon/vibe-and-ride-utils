@@ -41,24 +41,3 @@ def upload_parsed_file(parsedFile: Union["ZwoNode", List["ZwoNode"]], client: An
         inserted_records.append(rows[0])
 
     return inserted_records
-
-# Added: helper functions to read workouts from the database.
-def list_workouts(client: Any | None = None) -> List[dict[str, Any]]:
-    """
-    Return list of workout rows from the 'workouts' table.
-    """
-    client = _effective_client(client)
-    response = client.table("workouts").select("*").order("name", desc=False).execute()
-    rows = _extract_data(response)
-    return rows or []
-
-def get_workout_by_id(record_id: Any, client: Any | None = None) -> Optional[dict[str, Any]]:
-    """
-    Return single workout row by id or None if not found.
-    """
-    client = _effective_client(client)
-    response = client.table("workouts").select("*").eq("id", record_id).limit(1).execute()
-    rows = _extract_data(response)
-    if not rows:
-        return None
-    return rows[0]

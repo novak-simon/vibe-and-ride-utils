@@ -14,8 +14,8 @@ from database.songs import fetch_unanalyzed_songs, update_song_analysis, get_son
 from .librosa_analyzer import LibrosaAnalyzer
 from .beatnet_analyzer import BeatnetAnalyzer
 from .start_time_analyzer import StartTimeAnalyzer
-from .model import AudioAnalysis
-from music.model import Song
+from models.song_model import Song
+from models.audio_analysis_model import AudioAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,12 @@ class AudioAnalysisService:
         self.librosa_analyzer = LibrosaAnalyzer()
         self.beatnet_analyzer = BeatnetAnalyzer()
         self.start_time_analyzer = StartTimeAnalyzer()
+
+    def analyze(self, limit: int = 50, force: bool = False, song_id: Optional[int] = None) -> None:
+        if song_id is not None and song_id > 0:
+            self.analyze_by_id(song_id)
+        else:
+            self.analyze_batch(limit=limit, force=force)
 
     def analyze_batch(self, limit: int = 50, force: bool = False) -> None:
         if force:
@@ -107,6 +113,7 @@ class AudioAnalysisService:
             local_path, "wb"
         ) as local_file:
             shutil.copyfileobj(remote_stream, local_file)
+
 
         return local_path
 

@@ -13,8 +13,8 @@ if str(ROOT) not in sys.path:
 import dotenv
 from database.admin_client import get_admin_supabase
 from database import songs as songs_repo
-from music.model import Song
-from helper_methods.model_methods import _str_to_dict
+from models.song_model import Song
+from models.model_methods import _str_to_dict
 
 dotenv.load_dotenv()
 

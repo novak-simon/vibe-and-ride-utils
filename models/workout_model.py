@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
-from helper_methods.model_methods import estimate_cadence_from_power
+from models.model_methods import estimate_cadence_from_power
 
 ZwoValue = Union[str, int, float, bool, None]
 ZwoNode = Dict[str, Any]
