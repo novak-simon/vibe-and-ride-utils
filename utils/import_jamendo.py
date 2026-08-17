@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.jamendo_importer import run_importer
+from utils.jamendo_importer import run_importer
 MAX_TRACKS = 200
 
 def main() -> None:

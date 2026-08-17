@@ -1,5 +1,4 @@
 #python=3.11.6
-PySide6
 supabase
 python-dotenv
 numpy

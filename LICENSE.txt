@@ -1,5 +1,5 @@
 Copyright (c) 2026 Simon Novak
-Required Notice: Copyright Simon Novak (https://github.com/novak-simon/vibe-and-ride-python-depricated)
+Required Notice: Copyright Simon Novak (https://github.com/novak-simon/vibe-and-ride-utils)
 
 # PolyForm Noncommercial License 1.0.0
 

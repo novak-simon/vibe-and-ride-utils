@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from analysis.model import AudioAnalysis
+from audio_analysis.model import AudioAnalysis
 from music.model import Song
 from database.methods import _effective_client, _extract_data, _get_table, _execute_query, _song_from_record
 

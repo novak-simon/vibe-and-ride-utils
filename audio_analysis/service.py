@@ -11,10 +11,10 @@ import numpy as np
 import math
 
 from database.songs import fetch_unanalyzed_songs, update_song_analysis, get_song_by_id, fetch_songs
-from analysis.librosa_analyzer import LibrosaAnalyzer
-from analysis.beatnet_analyzer import BeatnetAnalyzer
-from analysis.start_time_analyzer import StartTimeAnalyzer
-from analysis.model import AudioAnalysis
+from .librosa_analyzer import LibrosaAnalyzer
+from .beatnet_analyzer import BeatnetAnalyzer
+from .start_time_analyzer import StartTimeAnalyzer
+from .model import AudioAnalysis
 from music.model import Song
 
 logger = logging.getLogger(__name__)

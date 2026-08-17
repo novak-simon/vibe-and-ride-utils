@@ -1,6 +1,6 @@
 from bisect import bisect_right
 from typing import Any, List
-from analysis.model import AudioAnalysis
+from .model import AudioAnalysis
 from music.model import Song
 
 class StartTimeAnalyzer:
