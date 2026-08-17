@@ -55,7 +55,7 @@ def _str_to_dict(value: str) -> dict:
     except (ValueError, json.JSONDecodeError):
         return {}
 
-def estimate_cadence_from_power(power: float, interval_context: Optional[Any] = None) -> Optional[float]:
+def estimate_cadence_from_power(power: float) -> Optional[float]:
     """
     Simple documented approximation mapping power -> cadence (fallback).
     Formula (first minimal implementation):
@@ -65,9 +65,22 @@ def estimate_cadence_from_power(power: float, interval_context: Optional[Any] = 
     Rationale: 80 RPM is a reasonable mid-point for many structured workouts.
     This is only a heuristic fallback for intervals that specify power but not cadence.
     """
+    if power == 0:
+        power = None
     try:
         p = float(power)
     except Exception:
         return 80 #Default cadence value if there is literally no information
-    cadence = max(75, min(115, 70 + 30 * p))
+    cadence = round(max(75, min(115, 70 + 30 * p)))
     return cadence
+
+def _is_bike_sport(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    try:
+        return int(value) == 1
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().lower() in {"bike", "bicycle", "cycling", "true", "yes", "1"}

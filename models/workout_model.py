@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
+from statistics import mean
 from typing import Any, Dict, List, Optional, Union
-from models.model_methods import estimate_cadence_from_power
+from models.model_methods import estimate_cadence_from_power, _is_bike_sport, _str_to_list, _optional_str, _optional_float
 
 ZwoValue = Union[str, int, float, bool, None]
 ZwoNode = Dict[str, Any]
@@ -12,150 +13,103 @@ ZwoNode = Dict[str, Any]
 class Interval:
     duration: float
     power: Optional[float] = None
+    power_low: Optional[float] = None
+    power_high: Optional[float] = None
     cadence: Optional[float] = None
+    cadence_low: Optional[float] = None
+    cadence_high: Optional[float] = None
     type: Optional[str] = None
-    attrs: Dict[str, ZwoValue] = field(default_factory=dict)
 
+    def __post_init__(self):
+        if (self.power is None or self.power == 0.0):
+            if (self.power_low is not None and self.power_high is not None
+                and self.power_low != 0.0 and self.power_high != 0.0):
+                object.__setattr__(
+                    self,
+                    "power",
+                    (self.power_low + self.power_high) / 2
+                )
+            elif self.power_low is not None and self.power_low != 0.0:
+                object.__setattr__(
+                    self,
+                    "power",
+                    self.power_low
+                )
+            elif self.power_high is not None and self.power_high != 0.0:
+                object.__setattr__(
+                    self,
+                    "power",
+                    self.power_high
+                )
+            else:
+                object.__setattr__(
+                    self,
+                    "power",
+                    0.6
+                )
 
-    @staticmethod
-    def from_node(node: ZwoNode) -> "Interval":
-        interval_info = node.get("interval") or {}
-        duration = interval_info.get("duration")
-        if duration is None:
-            raise ValueError("Interval node is missing duration")
-        return Interval(
-            duration=float(duration),
-            power=_optional_float(interval_info.get("power")),
-            cadence=_optional_float(interval_info.get("cadence")),
-            type=node.get("type"),
-            attrs=dict(node.get("attrs", {})),
-        )
+        if (self.cadence is None or self.cadence == 0.0):
+            if (self.cadence_low is not None
+                and self.cadence_high is not None
+                and self.cadence_low != 0.0
+                and self.cadence_high != 0.0):
+                object.__setattr__(
+                    self,
+                    "cadence",
+                    round((self.cadence_low + self.cadence_high) / 2)
+                )
+            elif self.cadence_low is not None and self.cadence_low != 0.0:
+                object.__setattr__(
+                    self,
+                    "cadence",
+                    self.cadence_low
+                )
+            elif self.cadence_high is not None and self.cadence_high != 0.0:
+                object.__setattr__(
+                    self,
+                    "cadence",
+                    self.cadence_high
+                )
+            else:
+                object.__setattr__(
+                    self,
+                    "cadence",
+                    estimate_cadence_from_power(self.power)
+                )
 
 
 @dataclass(frozen=True)
 class Workout:
-    name: Optional[str]
-    author: Optional[str]
-    sport_type: Optional[ZwoValue]
-    tags: List[str]
-    description: Optional[str]
-    intervals: List[Interval]
+    name: Optional[str] = None
+    author: Optional[str] = None
+    sport_type: Optional[ZwoValue] = None
+    tags: List[str] = field(default_factory=list)
+    description: Optional[str] = None
+    intervals: List[Interval] = field(default_factory=list)
 
     @property
     def total_duration(self) -> float:
         return sum(interval.duration for interval in self.intervals)
 
     @classmethod
-    def from_parsed(cls, parsed: ZwoNode) -> "Workout":
-        if not isinstance(parsed, dict):
-            raise ValueError("Parsed workout data must be a dict")
+    def from_dict(cls, data: ZwoNode) -> "Workout":
+        if not isinstance(data, dict):
+            raise ValueError("Workout data must be a dict")
         return cls(
-            name=(parsed.get("name") or parsed.get("name")),
-            author=parsed.get("author"),
-            sport_type=parsed.get("sport_type_is_bike"),
-            tags=list(parsed.get("tags", [])),
-            description=parsed.get("description"),
-            intervals=_extract_wod_intervals(parsed),
+            name=_optional_str(data.get("name")),
+            author=_optional_str(data.get("author")),
+            sport_type=_optional_str(data.get("sport_type_is_bike")),
+            tags=list(data.get("tags", [])),
+            description=_optional_str(data.get("description")),
+            intervals=[Interval(**interval) for interval in data.get("intervals")],
         )
 
-
-def _intervals_from_list(intervals_data: List[ZwoNode]) -> List[Interval]:
-    output: List[Interval] = []
-    for item in intervals_data:
-        data = item.get("interval")
-        duration = data.get("duration")
-        if duration is None:
-            continue
-        power = _optional_float(data.get("power"))
-        cadence = _optional_float(data.get("cadence"))
-        output.append(
-            Interval(
-                duration=float(duration),
-                power=power,
-                cadence=cadence if not cadence is None else estimate_cadence_from_power(power),
-                type=item.get("type"),
-                attrs=dict(item.get("attrs", {})),
-            )
-        )
-    return output
-
-
-def _optional_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    return float(value)
-
-
-def _repeat_count(value: Any) -> int:
-    if value is None:
-        return 1
-    try:
-        count = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"Invalid repeat count: {value!r}") from exc
-    if count < 0:
-        raise ValueError("Repeat count cannot be negative")
-    return count
-
-
-def _extract_wod_intervals(node: ZwoNode) -> List[Interval]:
-    if not isinstance(node, dict):
-        return []
-
-    intervals_data = node.get("intervals")
-    if isinstance(intervals_data, list):
-        return _intervals_from_list(intervals_data)
-
-    attrs = node.get("attrs", {}) or {}
-    repeat = _repeat_count(attrs.get("Repeat"))
-
-    children = node.get("children") or []
-    if children:
-        output: List[Interval] = []
-        for _ in range(repeat):
-            for child in children:
-                output.extend(_extract_wod_intervals(child))
-        return output
-
-    if node.get("type") == "IntervalsT":
-        return _intervals_from_intervals_t(attrs)
-
-    interval_info = node.get("interval")
-    if interval_info is not None:
-        interval = Interval.from_node(node)
-        return [interval] * repeat
-
-    return []
-
-
-def _intervals_from_intervals_t(attrs: Dict[str, ZwoValue]) -> List[Interval]:
-    repeat = _repeat_count(attrs.get("Repeat"))
-    on_duration = attrs.get("OnDuration")
-    off_duration = attrs.get("OffDuration")
-    on_power = _optional_float(attrs.get("OnPower"))
-    off_power = _optional_float(attrs.get("OffPower"))
-    cadence = _optional_float(attrs.get("Cadence"))
-
-    output: List[Interval] = []
-    for _ in range(repeat):
-        if on_duration is not None:
-            output.append(
-                Interval(
-                    duration=float(on_duration),
-                    power=on_power,
-                    cadence=cadence if not cadence is None else estimate_cadence_from_power(on_power),
-                    type="IntervalsT",
-                    attrs=dict(attrs),
-                )
-            )
-        if off_duration is not None:
-            output.append(
-                Interval(
-                    duration=float(off_duration),
-                    power=off_power,
-                    cadence=cadence if not cadence is None else estimate_cadence_from_power(on_power),
-                    type="IntervalsT",
-                    attrs=dict(attrs),
-                )
-            )
-    return output
+    def to_record(self) -> Dict[str, Any]:
+            return {
+                "name": self.name,
+                "author": self.author,
+                "sport_type_is_bike": _is_bike_sport(self.sport_type),
+                "tags": self.tags,
+                "description": self.description,
+                "intervals": [asdict(interval) for interval in self.intervals],
+            }

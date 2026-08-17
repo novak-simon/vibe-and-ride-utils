@@ -40,17 +40,6 @@ def _execute_query(query):
         raise RuntimeError(f"Supabase error: {error}")
     return data or []
 
-def _is_bike_sport(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    try:
-        return int(value) == 1
-    except (TypeError, ValueError):
-        pass
-    return str(value).strip().lower() in {"bike", "bicycle", "cycling", "true", "yes", "1"}
-
 def _value_exists(value: str, column: str, client: Any | None = None) -> bool:
     client = _effective_client(client)
     response = (

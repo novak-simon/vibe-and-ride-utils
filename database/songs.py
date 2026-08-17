@@ -42,7 +42,7 @@ def add_song(song: Song, client: Any | None = None, force: bool = False) -> Song
                 raise ValueError(f"Song with jamendo_id={song.jamendo_id} already exists")
         response = (
             client.table("songs")
-            .insert(song.to_record())
+            .insert(data)
             .select("*")
             .execute()
         )
