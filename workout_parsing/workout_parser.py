@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 import logging
-import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from database.workouts import upload_workout
 from database.admin_client import get_admin_supabase
 from models.workout_model import Workout, Interval
 admin_client = get_admin_supabase()
-
-ZwoValue = Dict[str, Union[str, int, float, bool, None]]
-ZwoNode = Dict[str, Union[str, ZwoValue]]
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +24,7 @@ class WorkoutParser:
                     path.unlink()
                 except Exception as e:
                     logger.error(f"Failed to remove parsed workout file {path}: {e}")
-        print(parsed_paths)
+        for path in parsed_paths: print(path)
 
     def parse_zwo_string(self, content: str, file_name: str = "Unnamed workout") -> Workout:
         root = ET.fromstring(content)

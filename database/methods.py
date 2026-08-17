@@ -40,16 +40,5 @@ def _execute_query(query):
         raise RuntimeError(f"Supabase error: {error}")
     return data or []
 
-def _value_exists(value: str, column: str, client: Any | None = None) -> bool:
-    client = _effective_client(client)
-    response = (
-        client.table("workouts")
-        .select("id")
-        .eq(column, value)
-        .limit(1)
-        .execute()
-    )
-    return bool(_extract_data(response))
-
 def _song_from_record(record: dict[str, Any]) -> Song:
     return Song.from_dict(record)

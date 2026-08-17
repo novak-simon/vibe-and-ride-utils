@@ -1,7 +1,6 @@
 from typing import Any, List, Optional, TYPE_CHECKING, Union
 
-from database.methods import _extract_data, _effective_client, _value_exists
-from models.model_methods import _is_bike_sport
+from database.methods import _extract_data, _effective_client
 from models.workout_model import Workout
 
 if TYPE_CHECKING:
