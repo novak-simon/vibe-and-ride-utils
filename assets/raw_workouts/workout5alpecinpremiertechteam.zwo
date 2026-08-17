@@ -1,0 +1,12 @@
+<workout_file>
+        <author>WhatsOnZwift Exporter</author>
+        <name>Zwift Workout</name>
+        <description>Workout exported from WhatsOnZwift: https://whatsonzwift.com/workouts/new-workouts/workout-5-alpecin-premier-tech-team-camp</description>
+        <sportType>bike</sportType>
+        <tags/>
+        <workout>
+        <Warmup Duration="600" PowerLow="0.35" PowerHigh="0.70" Cadence="95"/>
+        <IntervalsT Repeat="2" OnDuration="1200" OnPower="0.80" OffDuration="300" OffPower="0.50"/>
+        <Cooldown Duration="300" PowerLow="0.51" PowerHigh="0.31"/>
+    </workout>
+</workout_file>

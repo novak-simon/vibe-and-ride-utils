@@ -1,0 +1,18 @@
+<workout_file>
+        <author>WhatsOnZwift Exporter</author>
+        <name>Zwift Workout</name>
+        <description>Workout exported from WhatsOnZwift: https://whatsonzwift.com/workouts/new-workouts/workout-3-alpecin-premier-tech-team-camp</description>
+        <sportType>bike</sportType>
+        <tags/>
+        <workout>
+        <Warmup Duration="900" PowerLow="0.50" PowerHigh="0.75" Cadence="95"/>
+        <SteadyState Duration="900" Power="0.80" Cadence="95"/>
+        <SteadyState Duration="300" Power="0.50" Cadence="95"/>
+        <SteadyState Duration="300" Power="1.00" Cadence="95"/>
+        <SteadyState Duration="900" Power="0.50" Cadence="95"/>
+        <SteadyState Duration="900" Power="0.80" Cadence="95"/>
+        <SteadyState Duration="300" Power="0.50" Cadence="95"/>
+        <SteadyState Duration="300" Power="1.01" Cadence="95"/>
+        <Cooldown Duration="600" PowerLow="0.75" PowerHigh="0.25" Cadence="95"/>
+    </workout>
+</workout_file>

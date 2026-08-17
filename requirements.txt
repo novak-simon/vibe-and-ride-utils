@@ -1,0 +1,12 @@
+#python=3.11.6
+PySide6
+supabase
+python-dotenv
+numpy
+pyaudio
+librosa
+beatnet
+madmom
+cython
+setuptools<=81
+git+https://github.com/CPJKU/madmom@main
