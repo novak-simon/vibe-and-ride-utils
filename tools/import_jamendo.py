@@ -33,8 +33,14 @@ def main() -> None:
         default="popularity_total",
         help="The metric to boost the search results by."
     )
+    parser.add_argument(
+        "--groupby",
+        type=str,
+        default="artist_id",
+        help="The metric to group the search results by."
+    )
     args = parser.parse_args()
-    run_importer(limit=args.limit, force=args.force, boost=args.boost)
+    run_importer(limit=args.limit, force=args.force, boost=args.boost, groupby=args.groupby)
 
 if __name__ == "__main__":
     main()
