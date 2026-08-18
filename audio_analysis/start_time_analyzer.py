@@ -1,8 +1,9 @@
 from bisect import bisect_right
-from typing import Any, List
+from typing import Any, List, Tuple, Union
 from models.song_model import Song
 from models.audio_analysis_model import AudioAnalysis
-class StartTimeAnalyzer:
+
+class StartEndTimeAnalyzer:
 
     def __init__(self):
         pass
@@ -67,7 +68,7 @@ class StartTimeAnalyzer:
         temp.clear()
         return blocks
 
-    def _group_waveforms(self, song: Song, group_size: int) -> List[tuple]:
+    def _group_waveforms(self, song: Song, group_size: int) -> Tuple[List[tuple], float]:
         grouped = []
         temp = set()
         i = 0
@@ -120,19 +121,18 @@ class StartTimeAnalyzer:
             chosen = [candidates[max_diff[1]]]
         return chosen
 
-    def analyze(self, song: Song, beatnet_analysis: AudioAnalysis, librosa_analysis: AudioAnalysis) -> float:
-        """
-        Estimates best starting time in miliseconds for playing the song
-        Calculates based on waveforms of the song
-        """
+    def zoom_out_phase(self, song: Song) -> Tuple[List[tuple], List[tuple], float]:
         if not song.waveform:
-            return 0
+            return [], [], 0
 
         # Groups waveforms into groups of 10 (approximately 2 seconds) and for each group takes the average waveform
         values_grouped, grouped_length = self._group_waveforms(song, 10)
         # Goes through grouped values and compares each value to the average of the current forming group, when too distinct, adds current forming group to new list and starts forming new group
         small_blocks = self._create_blocks(values_grouped, 5, compare=False)   #5
         medium_blocks = self._create_blocks(small_blocks, 10, compare=True)
+        return medium_blocks, values_grouped, grouped_length
+
+    def zoom_in_phase(self, song: Song, medium_blocks: List[tuple], values_grouped: List[tuple], grouped_length: float, beatnet_analysis: AudioAnalysis, librosa_analysis: AudioAnalysis) -> List[tuple]:
         grouped_chosen = self._zoom_in(medium_blocks, values_grouped, grouped_length, 2, 2)
         wave_length = float(song.duration/len(song.waveform))
         wave_chosen = self._zoom_in(grouped_chosen, song.waveform, wave_length, 9, 10)
@@ -144,4 +144,23 @@ class StartTimeAnalyzer:
         else:
             timestamps = librosa_analysis.beat_timestamps
         start_time = self._closest_lower(timestamps, waveform_based_start_time)
-        return start_time if start_time is not None else waveform_based_start_time
+        if start_time is None:
+            start_time = waveform_based_start_time
+        return start_time
+
+    def analyze(self, song: Song, beatnet_analysis: AudioAnalysis, librosa_analysis: AudioAnalysis) -> AudioAnalysis:
+        """
+        Estimates best starting time in miliseconds for playing the song
+        Calculates based on waveforms of the song
+        """
+        medium_blocks, values_grouped, grouped_length = self.zoom_out_phase(song)
+        start_time = self.zoom_in_phase(song, medium_blocks, values_grouped, grouped_length, beatnet_analysis, librosa_analysis)
+        end_time = self.zoom_in_phase(song, medium_blocks.reverse(), values_grouped.reverse(), grouped_length, beatnet_analysis, librosa_analysis)
+        return AudioAnalysis(
+            bpm=None,
+            bpm_confidence=None,
+            beat_intervals=None,
+            beat_timestamps=None,
+            start_time=start_time,
+            end_time=end_time
+        )

@@ -13,7 +13,7 @@ import math
 from database.songs import fetch_unanalyzed_songs, update_song_analysis, get_song_by_id, fetch_songs
 from .librosa_analyzer import LibrosaAnalyzer
 from .beatnet_analyzer import BeatnetAnalyzer
-from .start_time_analyzer import StartTimeAnalyzer
+from .start_time_analyzer import StartEndTimeAnalyzer
 from models.song_model import Song
 from models.audio_analysis_model import AudioAnalysis
 
@@ -25,7 +25,7 @@ class AudioAnalysisService:
         self.db_client = db_client
         self.librosa_analyzer = LibrosaAnalyzer()
         self.beatnet_analyzer = BeatnetAnalyzer()
-        self.start_time_analyzer = StartTimeAnalyzer()
+        self.start_end_time_analyzer = StartEndTimeAnalyzer()
 
     def analyze(self, limit: int = 50, force: bool = False, song_id: Optional[int] = None) -> None:
         if song_id is not None and song_id > 0:
@@ -57,8 +57,8 @@ class AudioAnalysisService:
             with self._prepare_local_audio(song) as audio_path:
                 librosa_analysis = self.librosa_analyzer.analyze(audio_path)
                 beatnet_analysis = self.beatnet_analyzer.analyze(audio_path)
-                start_time_analysis = self.start_time_analyzer.analyze(song, beatnet_analysis=beatnet_analysis, librosa_analysis=librosa_analysis)
-                final_analysis: AudioAnalysis = self._merge_analysis(librosa_analysis, beatnet_analysis, start_time_analysis)
+                start_end_time_analysis = self.start_end_time_analyzer.analyze(song, beatnet_analysis=beatnet_analysis, librosa_analysis=librosa_analysis)
+                final_analysis: AudioAnalysis = self._merge_analysis(librosa_analysis, beatnet_analysis, start_end_time_analysis)
 
             update_song_analysis(self.db_client, song.id, final_analysis)
 
@@ -68,6 +68,7 @@ class AudioAnalysisService:
                 f"{final_analysis.bpm_confidence if final_analysis.bpm_confidence is not None else 'None'}"
             )
             print(f"  Start time: {final_analysis.start_time}")
+            print(f"  End time: {final_analysis.end_time}")
         except Exception as err:
             logger.exception("Failed to analyze song %s (%s)", song.title, song.id)
             print(f"  FAILED: {err}")
@@ -209,7 +210,7 @@ class AudioAnalysisService:
         return final_intervals
         
 
-    def _merge_analysis(self, librosa_analysis: AudioAnalysis, beatnet_analysis: AudioAnalysis, start_time_analysis: float) -> AudioAnalysis:
+    def _merge_analysis(self, librosa_analysis: AudioAnalysis, beatnet_analysis: AudioAnalysis, start_end_time_analysis: AudioAnalysis) -> AudioAnalysis:
         relation = beatnet_analysis.bpm / librosa_analysis.bpm
         tolerance = 0.15
         relation_estimate = self._calculate_relation_estimate(relation, tolerance)
@@ -222,6 +223,7 @@ class AudioAnalysisService:
         bpm_confidence= final_confidence,
         beat_intervals= final_intervals,
         beat_timestamps=final_timestamps,
-        start_time=start_time_analysis
+        start_time=start_end_time_analysis.start_time,
+        end_time=start_end_time_analysis.end_time
         )
         return final_analysis
