@@ -11,6 +11,7 @@ class AudioAnalysis:
     beat_intervals: List[float]
     beat_timestamps: List[float]|List[tuple[float, int]]
     start_time: float = 0
+    end_time: float = 0
 
     def to_record(self) -> Dict[str, Any]:
         return {
@@ -19,4 +20,5 @@ class AudioAnalysis:
             "beat_intervals": self.beat_intervals,
             "beat_timestamps": self.beat_timestamps,
             "start_time": self.start_time,
+            "end_time": self.end_time,
         }

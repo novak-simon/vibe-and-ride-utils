@@ -23,8 +23,7 @@ class Song:
     audio_url: Optional[str] = None
     download_url: Optional[str] = None
     start_time: float = 0
-    algorithm_cadence: int = 0
-    algorithm_power: int = 60
+    end_time: float = 0
     waveform: List[int] = None
     image: Optional[str] = None
     shareurl: Optional[str] = None
@@ -59,8 +58,7 @@ class Song:
             download_url=_optional_str(data.get("download_url")),
             beat_intervals=_optional_float_list(data.get("beat_intervals")),
             start_time=_optional_float(data.get("start_time")),
-            algorithm_cadence=_optional_int(data.get("algorithm_cadence")),
-            algorithm_power=_optional_int(data.get("algorithm_power"), default=60),
+            end_time=_optional_float(data.get("end_time")),
             waveform=_str_to_list(data.get("waveform")),
             image=_optional_str(data.get("image")),
             shareurl=_optional_str(data.get("shareurl")),
@@ -92,8 +90,7 @@ class Song:
             "download_url": self.download_url,
             "beat_intervals": self.beat_intervals,
             "start_time": self.start_time,
-            "algorithm_cadence": self.algorithm_cadence,
-            "algorithm_power": self.algorithm_power,
+            "end_time": self.end_time,
             "waveform": self.waveform,
             "image": self.image,
             "shareurl": self.shareurl,

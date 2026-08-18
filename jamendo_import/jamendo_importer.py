@@ -46,14 +46,14 @@ def load_jamendo_client_id() -> str:
     return client_id
 
 
-def fetch_jamendo_tracks(client_id: str, limit: int) -> List[Dict[str, Any]]:
+def fetch_jamendo_tracks(client_id: str, limit: int, boost: str) -> List[Dict[str, Any]]:
     params = {
         "client_id": client_id,
         "format": "jsonpretty",
         "limit": limit,
         "include": "musicinfo",
         "groupby": "artist_id",
-        "boost": "popularity_total"
+        "boost": boost
     }
 
     response = requests.get(JAMENDO_ENDPOINT, params=params, timeout=30)
@@ -222,12 +222,20 @@ def import_jamendo_tracks(results: Iterable[Dict[str, Any]], force: bool = False
 
     return stats
 
+BOOST_OPTIONS = ["buzzrate", "downloads_week", "downloads_month", "downloads_total", "listens_week", "listens_month", "listens_total", "popularity_week", "popularity_month", "popularity_total"]
 
-def run_importer(limit, force: bool = False) -> int:
+def run_importer(limit, force: bool = False, boost: str = "popularity_total") -> int:
     client_id = load_jamendo_client_id()
-
+    tracks = []
     print("Fetching songs from Jamendo...")
-    tracks = fetch_jamendo_tracks(client_id, limit)
+    if boost == "all":
+        for boost_option in BOOST_OPTIONS:
+            tracks.extend(fetch_jamendo_tracks(client_id, limit, boost_option))
+    else:
+        if boost not in BOOST_OPTIONS:
+            print(f"Invalid boost option '{boost}'. Defaulting to 'popularity_total'.")
+            boost = "popularity_total"
+        tracks = fetch_jamendo_tracks(client_id, limit, boost)
     print(f"Received {len(tracks)} tracks.\n")
     print("Importing songs...\n")
 

@@ -27,8 +27,14 @@ def main() -> None:
         default=False,
         help="If set True, analyzer will analyze songs even if they were previously analyzed and will update the values in database."
     )
+    parser.add_argument(
+        "--boost",
+        type=str,
+        default="popularity_total",
+        help="The metric to boost the search results by."
+    )
     args = parser.parse_args()
-    run_importer(limit=args.limit, force=args.force)
+    run_importer(limit=args.limit, force=args.force, boost=args.boost)
 
 if __name__ == "__main__":
     main()
