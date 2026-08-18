@@ -64,7 +64,7 @@ def fetch_unanalyzed_songs(client, limit: int = 50) -> List[Song]:
     try:
         query = (
             table.select("*")
-            .or_("bpm.is.null,beat_intervals.is.null")
+            .or_("bpm.is.null,beat_intervals.is.null,bpm_confidence.is.null,beat_timestamps.is.null,start_time.is.null,end_time.is.null")
             .limit(limit)
         )
         rows = _execute_query(query)
