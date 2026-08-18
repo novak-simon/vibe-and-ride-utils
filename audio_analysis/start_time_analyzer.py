@@ -74,6 +74,7 @@ class StartEndTimeAnalyzer:
         i = 0
         waveforms = len(song.waveform)
         grouped_length = song.duration/waveforms*group_size
+        print(f"Grouping waveforms into groups of {group_size} (approximately {round(grouped_length, 2)} seconds), total waveforms: {waveforms}, total duration: {song.duration} seconds")
         for val in song.waveform:
             i += 1
             temp.add(val)
@@ -122,9 +123,6 @@ class StartEndTimeAnalyzer:
         return chosen
 
     def zoom_out_phase(self, song: Song) -> Tuple[List[tuple], List[tuple], float]:
-        if not song.waveform:
-            return [], [], 0
-
         # Groups waveforms into groups of 10 (approximately 2 seconds) and for each group takes the average waveform
         values_grouped, grouped_length = self._group_waveforms(song, 10)
         # Goes through grouped values and compares each value to the average of the current forming group, when too distinct, adds current forming group to new list and starts forming new group
@@ -153,6 +151,16 @@ class StartEndTimeAnalyzer:
         Estimates best starting time in miliseconds for playing the song
         Calculates based on waveforms of the song
         """
+        if song.duration == 0 or not song.waveform:
+            return AudioAnalysis(
+                bpm=None,
+                bpm_confidence=None,
+                beat_intervals=None,
+                beat_timestamps=None,
+                start_time=0,
+                end_time=0
+            )
+
         medium_blocks, values_grouped, grouped_length = self.zoom_out_phase(song)
         start_time = self.zoom_in_phase(song, medium_blocks, values_grouped, grouped_length, beatnet_analysis, librosa_analysis)
 

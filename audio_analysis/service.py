@@ -211,7 +211,10 @@ class AudioAnalysisService:
         
 
     def _merge_analysis(self, librosa_analysis: AudioAnalysis, beatnet_analysis: AudioAnalysis, start_end_time_analysis: AudioAnalysis) -> AudioAnalysis:
-        relation = beatnet_analysis.bpm / librosa_analysis.bpm
+        if librosa_analysis.bpm == 0 or beatnet_analysis.bpm == 0:
+            relation = 1
+        else:
+            relation = beatnet_analysis.bpm / librosa_analysis.bpm
         tolerance = 0.15
         relation_estimate = self._calculate_relation_estimate(relation, tolerance)
         librosa_analysis_bpm, beatnet_analysis_bpm, librosa_analysis_intervals, beatnet_analysis_intervals, librosa_analysis_timestamps, beatnet_analysis_timestamps = self._normalize_by_relation_estimate(relation_estimate, librosa_analysis, beatnet_analysis)
