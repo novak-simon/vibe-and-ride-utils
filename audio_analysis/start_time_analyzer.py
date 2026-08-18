@@ -155,7 +155,11 @@ class StartEndTimeAnalyzer:
         """
         medium_blocks, values_grouped, grouped_length = self.zoom_out_phase(song)
         start_time = self.zoom_in_phase(song, medium_blocks, values_grouped, grouped_length, beatnet_analysis, librosa_analysis)
-        end_time = self.zoom_in_phase(song, medium_blocks.reverse(), values_grouped.reverse(), grouped_length, beatnet_analysis, librosa_analysis)
+
+        reversed_medium_blocks = list(reversed(medium_blocks))
+        reversed_values_grouped = list(reversed(values_grouped))
+
+        end_time = self.zoom_in_phase(song, reversed_medium_blocks, reversed_values_grouped, grouped_length, beatnet_analysis, librosa_analysis)
         return AudioAnalysis(
             bpm=None,
             bpm_confidence=None,
