@@ -91,6 +91,7 @@ def upload_songs(
             "duration": song.duration,
             "genre": genre or None,
             "mood": song.audius_mood,
+            "bpm": song.bpm,
             "release_date": song.release_date,
             "image": song.image,
             "share_url": share_url,
@@ -102,6 +103,7 @@ def upload_songs(
             client.table("songs").update(song_record).eq(
                 "id", song_id
             ).execute()
+            inserted += 1
         else:
             created = _first(
                 client.table("songs").insert(song_record).execute()

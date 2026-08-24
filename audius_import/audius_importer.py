@@ -96,6 +96,7 @@ def audius_track_to_song(track: Dict[str, Any]) -> Song:
             "audius_is_downloadable": track.get("is_downloadable"),
             "image": _artwork_url(track.get("artwork")),
             "shareurl": track.get("permalink"),
+            "bpm": track.get("bpm"),
             "audio_url": None,
             "download_url": None,
         }
@@ -196,7 +197,7 @@ def import_audius_tracks(
     for track in raw_tracks:
         if not include_unlicensed and not _license_is_commercial(
             track.get("license")
-        ):
+        ) and not track.get("is_streamable"):
             continue
 
         try:
