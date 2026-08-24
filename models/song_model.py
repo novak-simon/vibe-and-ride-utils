@@ -9,6 +9,21 @@ from models.model_methods import _optional_float_list, _optional_int, _optional_
 class Song:
     title: str
     jamendo_id: Optional[str] = None
+    jamendo_artist_id: Optional[int] = None
+    jamendo_album_name: Optional[str] = None
+    audius_id: Optional[str] = None
+    audius_track_cid: Optional[str] = None
+    audius_user_id: Optional[str] = None
+    audius_permalink: Optional[str] = None
+    audius_license: Optional[str] = None
+    audius_license_url: Optional[str] = None
+    audius_mood: Optional[str] = None
+    audius_tags: List[str] = None
+    audius_play_count: Optional[int] = None
+    audius_repost_count: Optional[int] = None
+    audius_favorite_count: Optional[int] = None
+    audius_comment_count: Optional[int] = None
+    audius_is_downloadable: Optional[bool] = None
     id: Optional[int] = None
     artist: Optional[str] = None
     release_date: Optional[str] = None
@@ -44,7 +59,24 @@ class Song:
         return cls(
             id=_optional_int_or_none(data.get("id")),
             title=str(data["title"]),
-            jamendo_id=_optional_str(data["jamendo_id"]),
+            jamendo_id=_optional_str(data.get("jamendo_id")),
+            jamendo_artist_id=_optional_int_or_none(
+                data.get("jamendo_artist_id")
+            ),
+            jamendo_album_name=_optional_str(data.get("jamendo_album_name")),
+            audius_id=_optional_str(data.get("audius_id")),
+            audius_track_cid=_optional_str(data.get("audius_track_cid")),
+            audius_user_id=_optional_str(data.get("audius_user_id")),
+            audius_permalink=_optional_str(data.get("audius_permalink")),
+            audius_license=_optional_str(data.get("audius_license")),
+            audius_license_url=_optional_str(data.get("audius_license_url")),
+            audius_mood=_optional_str(data.get("audius_mood")),
+            audius_tags=_str_to_list(data.get("audius_tags")),
+            audius_play_count=_optional_int(data.get("audius_play_count")),
+            audius_repost_count=_optional_int(data.get("audius_repost_count")),
+            audius_favorite_count=_optional_int(data.get("audius_favorite_count")),
+            audius_comment_count=_optional_int(data.get("audius_comment_count")),
+            audius_is_downloadable=data.get("audius_is_downloadable"),
             artist=_optional_str(data.get("artist")),
             genre=_str_to_list(data.get("genre")),
             instruments=_str_to_list(data.get("instruments")),
@@ -79,6 +111,21 @@ class Song:
         return {
             "title": self.title,
             "jamendo_id": self.jamendo_id,
+            "jamendo_artist_id": self.jamendo_artist_id,
+            "jamendo_album_name": self.jamendo_album_name,
+            "audius_id": self.audius_id,
+            "audius_track_cid": self.audius_track_cid,
+            "audius_user_id": self.audius_user_id,
+            "audius_permalink": self.audius_permalink,
+            "audius_license": self.audius_license,
+            "audius_license_url": self.audius_license_url,
+            "audius_mood": self.audius_mood,
+            "audius_tags": self.audius_tags,
+            "audius_play_count": self.audius_play_count,
+            "audius_repost_count": self.audius_repost_count,
+            "audius_favorite_count": self.audius_favorite_count,
+            "audius_comment_count": self.audius_comment_count,
+            "audius_is_downloadable": self.audius_is_downloadable,
             "artist": self.artist,
             "release_date": self.release_date,
             "genre": self.genre,

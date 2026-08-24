@@ -39,8 +39,25 @@ def main() -> None:
         default="artist_id",
         help="The metric to group the search results by."
     )
+    parser.add_argument(
+        "--no-create-artists",
+        action="store_true",
+        help="Do not create missing artist records.",
+    )
+    parser.add_argument(
+        "--no-create-albums",
+        action="store_true",
+        help="Do not create missing album records.",
+    )
     args = parser.parse_args()
-    run_importer(limit=args.limit, force=args.force, boost=args.boost, groupby=args.groupby)
+    run_importer(
+        limit=args.limit,
+        force=args.force,
+        boost=args.boost,
+        groupby=args.groupby,
+        create_artists=not args.no_create_artists,
+        create_albums=not args.no_create_albums,
+    )
 
 if __name__ == "__main__":
     main()
