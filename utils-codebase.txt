@@ -1,0 +1,2375 @@
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\audio_analysis\analysis_methods.py ===
+import os
+from typing import Any
+
+def save_in_downloads_as(content: Any = "empty", name: str = "unnamed_exported_file") -> None:
+    downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+    file_path = os.path.join(downloads_path, name + ".txt")
+    with open(file_path, "w") as f:
+        f.write(str(content))
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\audio_analysis\beatnet_analyzer.py ===
+from __future__ import annotations
+
+import numpy as np
+import librosa
+from typing import List, Optional, Any
+from BeatNet.BeatNet import BeatNet
+
+from audio_analysis.analysis_methods import save_in_downloads_as
+
+from models.audio_analysis_model import AudioAnalysis
+
+class BeatnetAnalyzer:
+    """
+    Analyze a local audio file using BeatNet (offline mode).
+
+    This implementation attempts to be tolerant to different BeatNet return
+    formats. It loads the audio (to get sr for conversions) then calls
+    BeatNet.process(...) and extracts beat times (seconds) and optional tempo.
+    """
+
+    def analyze(self, audio_path: str) -> AudioAnalysis:
+        # load audio to obtain sample rate for possible conversions
+        y, sr = librosa.load(audio_path, sr=None, mono=True)
+        if y.size == 0:
+            raise ValueError(f"Unable to decode audio from {audio_path}")
+
+        try:
+            from BeatNet.BeatNet import BeatNet # type: ignore
+        except Exception as exc:
+            raise ImportError(
+                "BeatNet library is required for BeatnetAnalyzer. Install it (e.g. `pip install BeatNet`) "
+                "or adapt this module."
+            ) from exc
+
+        estimator = BeatNet(1, mode="offline", inference_model="DBN", plot=[], thread=False)
+        output = estimator.process(audio_path)
+        save_in_downloads_as(output, "beatnet_output")
+
+        beats = [(float(t), int(p)) for t, p in output]
+
+        
+        bpm_candidates: List[float] = []
+        
+        beat_times = [float(b[0]) for b in sorted(beats, key=lambda x: x[0])]
+        if len(beat_times) == 0 and not bpm_candidates:
+            raise RuntimeError("BeatNet produced no beats for the given audio")        
+        
+        beat_intervals = [
+            float(beat_times[i + 1] - beat_times[i])
+            for i in range(len(beat_times) - 1)
+        ]
+        
+        filtered_intervals = []
+        for interval in beat_intervals:
+            if not interval == 0:
+                filtered_intervals.append(interval)
+
+        processed_intervals = self._remove_anomalies(filtered_intervals)
+        if processed_intervals:
+            calculated_bpm = 60.0 / float(np.mean(processed_intervals))
+            bpm_candidates.append(calculated_bpm)
+        if filtered_intervals:
+            alternative_bpm = 60.0 / float(np.median(filtered_intervals))
+            bpm_candidates.append(alternative_bpm)
+
+        final_bpm_estimate = round(float(np.mean(bpm_candidates))) if bpm_candidates else None
+        # print(f"Beatnet BPM: {final_bpm_estimate}")
+        # print(f"Beatnet confidence: {self._confidence_for_intervals(filtered_intervals)}")
+
+        return AudioAnalysis(
+            bpm=final_bpm_estimate,
+            bpm_confidence=self._confidence_for_intervals(filtered_intervals),
+            beat_intervals=filtered_intervals,
+            beat_timestamps=beats,
+        )
+
+    @staticmethod
+    def _confidence_for_intervals(intervals: List[float]) -> Optional[int]:
+        if len(intervals) < 2:
+            return None
+        mean_interval = float(np.mean(intervals))
+        if mean_interval <= 0:
+            return None
+        std_interval = float(np.std(intervals, ddof=0))
+        coefficient_of_variation = int(std_interval / mean_interval * 1000)
+        confidence = 1000 - coefficient_of_variation
+        return max(0, min(1000, confidence))
+
+    @staticmethod
+    def _remove_anomalies(intervals: List[float]) -> List[float]:
+        if not intervals:
+            return []
+        std_interval = float(np.std(intervals, ddof=0))
+        mean_interval = float(np.mean(intervals))
+        if mean_interval <= 0:
+            return []
+        processed_intervals: List[float] = []
+        for value in intervals:
+            # keep value if within +/- 0.3 * std of mean
+            if (mean_interval - 0.3 * std_interval) <= value <= (mean_interval + 0.3 * std_interval):
+                processed_intervals.append(float(value))
+        return processed_intervals
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\audio_analysis\librosa_analyzer.py ===
+from __future__ import annotations
+
+import numpy as np
+import librosa
+from typing import List, Optional
+
+from models.audio_analysis_model import AudioAnalysis
+from audio_analysis.analysis_methods import save_in_downloads_as
+
+
+class LibrosaAnalyzer:
+    """
+    Analyze a local audio file using librosa beat tracking.
+
+    The BPM confidence is an application-level metric based on beat-interval
+    regularity; this is not a librosa-provided confidence score.
+    """
+
+    def analyze(self, audio_path: str) -> AudioAnalysis:
+        y, sr = librosa.load(audio_path, sr=None, mono=True)
+        if y.size == 0:
+            raise ValueError(f"Unable to decode audio from {audio_path}")
+
+        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+        bpm = []
+        if isinstance(tempo, float):
+            bpm.append(tempo)
+        else:
+            for temp in tempo:
+                bpm.append(round(temp))
+
+        beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+        save_in_downloads_as(beat_times, "librosa_beat_times")
+        beats = [float(value) for value in beat_times]
+        beat_intervals = [
+            float(beats[i + 1] - beats[i]) for i in range(len(beats) - 1)
+        ]
+        processed_intervals = self._remove_anomalies(beat_intervals)
+        if processed_intervals:
+            calculated_bpm = 60 / np.mean(processed_intervals)
+            alternative_bpm = 60 / np.median(beat_intervals)
+        elif beat_intervals:
+            calculated_bpm = 60 / np.mean(beat_intervals)
+            alternative_bpm = 60 / np.median(beat_intervals)
+        else:
+            calculated_bpm = 0
+            alternative_bpm = 0
+        
+        bpm.append(calculated_bpm)
+        bpm.append(alternative_bpm)
+        final_bpm_estimate = int(round(np.nan_to_num(np.nanmean(bpm))))
+        #print(f"Librosa BPM: {final_bpm_estimate}")
+        #print(f"Librosa confidence: {self._confidence_for_intervals(beat_intervals)}")
+        
+
+        return AudioAnalysis(
+            bpm=final_bpm_estimate,
+            bpm_confidence=self._confidence_for_intervals(beat_intervals),
+            beat_intervals=beat_intervals,
+            beat_timestamps=beats,
+        )
+
+    @staticmethod
+    def _confidence_for_intervals(intervals: List[float]) -> Optional[int]:
+        if len(intervals) < 2:
+            return None
+
+        mean_interval = float(np.mean(intervals))
+        if mean_interval <= 0:
+            return None
+
+        std_interval = float(np.std(intervals, ddof=0))
+        coefficient_of_variation = int(std_interval / mean_interval * 1000)
+        confidence = 1000 - coefficient_of_variation
+        return max(0, min(1000, confidence))
+
+    @staticmethod
+    def _remove_anomalies(intervals: List[float]) -> List[float]:
+        if not intervals:
+            return []
+        std_interval = float(np.std(intervals, ddof=0))
+        mean_interval = float(np.mean(intervals))
+        if mean_interval <= 0:
+            return None
+        processed_intervals = []
+        for i in range(len(intervals)):
+            value = intervals[i]
+            if not value > mean_interval + 0.3 * std_interval or value < mean_interval - 0.3 * std_interval:
+                processed_intervals.append(value)
+        return processed_intervals
+        
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\audio_analysis\service.py ===
+from __future__ import annotations
+
+import logging
+import os
+import shutil
+import tempfile
+import urllib.request
+from contextlib import contextmanager
+from typing import Iterator, Optional, List
+import numpy as np
+import math
+
+from database.songs import fetch_unanalyzed_songs, update_song_analysis, get_song_by_id, fetch_songs
+from .librosa_analyzer import LibrosaAnalyzer
+from .beatnet_analyzer import BeatnetAnalyzer
+from .start_time_analyzer import StartEndTimeAnalyzer
+from models.song_model import Song
+from models.audio_analysis_model import AudioAnalysis
+
+logger = logging.getLogger(__name__)
+
+
+class AudioAnalysisService:
+    def __init__(self, db_client) -> None:
+        self.db_client = db_client
+        self.librosa_analyzer = LibrosaAnalyzer()
+        self.beatnet_analyzer = BeatnetAnalyzer()
+        self.start_end_time_analyzer = StartEndTimeAnalyzer()
+
+    def analyze(self, limit: int = 50, force: bool = False, song_id: Optional[int] = None) -> None:
+        if song_id is not None and song_id > 0:
+            self.analyze_by_id(song_id)
+        else:
+            self.analyze_batch(limit=limit, force=force)
+
+    def analyze_batch(self, limit: int = 50, force: bool = False) -> None:
+        if force:
+            songs = fetch_songs(self.db_client, limit=limit)
+        else:
+            songs = fetch_unanalyzed_songs(self.db_client, limit=limit)
+        if not songs:
+            print("No songs found for analysis.")
+            return
+
+        for index, song in enumerate(songs, start=1):
+            print(f"Analyzing {index}/{len(songs)}: {song.title}")
+            self.analyze_song(song)
+
+    def analyze_by_id(self, id: int) -> None:
+        song = get_song_by_id(id, self.db_client)
+        print(f"Analyzing {song.title}")
+        self.analyze_song(song)
+
+
+    def analyze_song(self, song: Song) -> None:
+        try:
+            with self._prepare_local_audio(song) as audio_path:
+                librosa_analysis = self.librosa_analyzer.analyze(audio_path)
+                beatnet_analysis = self.beatnet_analyzer.analyze(audio_path)
+                start_end_time_analysis = self.start_end_time_analyzer.analyze(song, beatnet_analysis=beatnet_analysis, librosa_analysis=librosa_analysis)
+                final_analysis: AudioAnalysis = self._merge_analysis(librosa_analysis, beatnet_analysis, start_end_time_analysis)
+
+            update_song_analysis(self.db_client, song.id, final_analysis)
+
+            print(f"  BPM: {final_analysis.bpm}")
+            print(
+                f"  Confidence: "
+                f"{final_analysis.bpm_confidence if final_analysis.bpm_confidence is not None else 'None'}"
+            )
+            print(f"  Start time: {final_analysis.start_time}")
+            print(f"  End time: {final_analysis.end_time}")
+        except Exception as err:
+            logger.exception("Failed to analyze song %s (%s)", song.title, song.id)
+            print(f"  FAILED: {err}")
+
+
+    @contextmanager
+    def _prepare_local_audio(self, song: Song) -> Iterator[str]:
+        if song.id is None:
+            raise ValueError("Song has no database id")
+
+        source_url = song.download_url or song.audio_url
+        if not source_url:
+            raise ValueError("Song has no audio_url or download_url")
+
+        if source_url.startswith("file://"):
+            local_path = source_url[7:]
+            cleanup = False
+        elif os.path.exists(source_url):
+            local_path = source_url
+            cleanup = False
+        else:
+            local_path = self._download_remote_audio(source_url)
+            cleanup = True
+
+        try:
+            yield local_path
+        finally:
+            if cleanup and os.path.exists(local_path):
+                try:
+                    os.remove(local_path)
+                except OSError:
+                    logger.warning("Unable to remove temporary audio file %s", local_path)
+
+    def _download_remote_audio(self, url: str) -> str:
+        suffix = os.path.splitext(url.split("?", 1)[0])[1] or ".mp3"
+        fd, local_path = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "zwift-music/librosa-analyzer"}
+        )
+        with urllib.request.urlopen(request, timeout=60) as remote_stream, open(
+            local_path, "wb"
+        ) as local_file:
+            shutil.copyfileobj(remote_stream, local_file)
+
+
+        return local_path
+
+    def _calculate_relation_estimate(self, relation: float, tolerance: float) -> float:
+        if 2-tolerance < relation and relation < 2+tolerance:
+            relation_estimate = 2
+        elif 3-tolerance < relation and relation < 3+tolerance:
+            relation_estimate = 3
+        elif 4-tolerance < relation and relation < 4+tolerance:
+            relation_estimate = 4
+        elif 1/2 - tolerance < relation and relation < 1/2 + tolerance:
+            relation_estimate = 0.5
+        elif 1/3-tolerance < relation and relation < 1/3+tolerance:
+            relation_estimate = 1/3
+        elif 1/4-tolerance < relation and relation < 1/4+tolerance:
+            relation_estimate = 1/4
+        else:
+            relation_estimate = 1
+        return relation_estimate
+
+    def _normalize_by_relation_estimate(self, relation_estimate: float, librosa_analysis: AudioAnalysis, beatnet_analysis: AudioAnalysis):
+        beatnet_analysis_bpm = beatnet_analysis.bpm / relation_estimate
+        librosa_analysis_bpm = librosa_analysis.bpm
+        if relation_estimate > 1:
+            k = int(relation_estimate)
+            beatnet_analysis_intervals = beatnet_analysis.beat_intervals[::k]
+            librosa_analysis_intervals = librosa_analysis.beat_intervals
+            beatnet_analysis_timestamps = [t[0] for t in beatnet_analysis.beat_timestamps[::k]]
+            librosa_analysis_timestamps = librosa_analysis.beat_timestamps
+        else:
+            k = int(1 / relation_estimate)
+            beatnet_analysis_intervals = beatnet_analysis.beat_intervals
+            librosa_analysis_intervals = librosa_analysis.beat_intervals[::k]
+            beatnet_analysis_timestamps = [t[0] for t in beatnet_analysis.beat_timestamps]
+            librosa_analysis_timestamps = librosa_analysis.beat_timestamps[::k]
+        return librosa_analysis_bpm, beatnet_analysis_bpm, librosa_analysis_intervals, beatnet_analysis_intervals, librosa_analysis_timestamps, beatnet_analysis_timestamps
+    
+    def _calculate_final_bpm_and_confidence(self, librosa_bpm: float, beatnet_bpm: float, librosa_confidence: float, beatnet_confidence: float) -> int:
+        if librosa_confidence is None or beatnet_confidence is None:
+            if librosa_confidence is None:
+                if beatnet_confidence is None:
+                    final_confidence = 0
+                    final_bpm = (librosa_bpm + beatnet_bpm) / 2
+                else:
+                    final_confidence = beatnet_confidence
+                    final_bpm = beatnet_bpm
+            else:
+                final_confidence = librosa_confidence
+                final_bpm = librosa_bpm
+        elif abs(librosa_confidence - beatnet_confidence) > 100:
+            if librosa_confidence > beatnet_confidence:
+                final_bpm = librosa_bpm
+                final_confidence = librosa_confidence - 100
+            else:
+                final_bpm = beatnet_bpm
+                final_confidence = beatnet_confidence - 100
+        elif abs(librosa_bpm - beatnet_bpm) > 15:
+            final_bpm = beatnet_bpm
+            final_confidence = beatnet_confidence - 100
+        else:
+            final_bpm = (librosa_bpm * librosa_confidence + beatnet_bpm  * beatnet_confidence) / (librosa_confidence + beatnet_confidence)
+            bpm_diff = abs(librosa_bpm - beatnet_bpm)
+            matchCoefficient = -1 * math.pow(bpm_diff - 5, 3)
+            final_confidence = (librosa_confidence if beatnet_confidence == 0 else ((librosa_confidence + beatnet_confidence) / 2)) + matchCoefficient
+        if final_confidence > 1000:
+            final_confidence = 1000
+        elif final_confidence < 0:
+            final_confidence = 0
+        if final_bpm > 160:
+            final_bpm /= 2
+        elif final_bpm < 40:
+            final_bpm *= 2
+        return int(round(final_bpm)), int(round(final_confidence))
+
+    def _merge_intervals(self, librosa_intervals: List[float], beatnet_intervals: List[float]) -> List[float]:
+        final_intervals = []
+        for i in range(max(len(librosa_intervals), len(beatnet_intervals))):
+            if i < len(librosa_intervals):
+                librosa_interval = librosa_intervals[i]
+            else:
+                librosa_interval = None
+            if i < len(beatnet_intervals):
+                beatnet_interval = beatnet_intervals[i]
+            else:
+                beatnet_interval = None
+            if beatnet_interval is None:
+                final_intervals.append(librosa_interval)
+                continue
+            elif librosa_interval is None:
+                final_intervals.append(beatnet_interval)
+                continue
+            final_intervals.append(librosa_interval + beatnet_interval / 2)
+        return final_intervals
+        
+
+    def _merge_analysis(self, librosa_analysis: AudioAnalysis, beatnet_analysis: AudioAnalysis, start_end_time_analysis: AudioAnalysis) -> AudioAnalysis:
+        if librosa_analysis.bpm == 0 or beatnet_analysis.bpm == 0:
+            relation = 1
+        else:
+            relation = beatnet_analysis.bpm / librosa_analysis.bpm
+        tolerance = 0.15
+        relation_estimate = self._calculate_relation_estimate(relation, tolerance)
+        librosa_analysis_bpm, beatnet_analysis_bpm, librosa_analysis_intervals, beatnet_analysis_intervals, librosa_analysis_timestamps, beatnet_analysis_timestamps = self._normalize_by_relation_estimate(relation_estimate, librosa_analysis, beatnet_analysis)
+        final_bpm, final_confidence = self._calculate_final_bpm_and_confidence(librosa_analysis_bpm, beatnet_analysis_bpm, librosa_analysis.bpm_confidence, beatnet_analysis.bpm_confidence)
+        final_intervals = self._merge_intervals(librosa_analysis_intervals, beatnet_analysis_intervals)
+        final_timestamps = self._merge_intervals(librosa_analysis_timestamps, beatnet_analysis_timestamps)
+        final_analysis: AudioAnalysis = AudioAnalysis(
+        bpm= final_bpm,
+        bpm_confidence= final_confidence,
+        beat_intervals= final_intervals,
+        beat_timestamps=final_timestamps,
+        start_time=start_end_time_analysis.start_time,
+        end_time=start_end_time_analysis.end_time
+        )
+        return final_analysis
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\audio_analysis\start_time_analyzer.py ===
+from bisect import bisect_right
+from typing import Any, List, Tuple, Union
+from models.song_model import Song
+from models.audio_analysis_model import AudioAnalysis
+
+class StartEndTimeAnalyzer:
+
+    def __init__(self):
+        pass
+
+
+    def _avg(self, values: List[tuple]|List[int]) -> float:
+        """
+        Returns weighted average of first values in list of tuples as a 1 point float
+        """
+        avg_value = 0
+        total_weight = 0
+        for v in values:
+            if isinstance(v, int):
+                avg_value += v
+                total_weight += 1
+            else:
+                avg_value += v[0] * v[1]
+                total_weight += v[1]
+        return round(avg_value / total_weight if total_weight else 0, 2)
+
+    def _closest_lower(self, sorted_list: List[Any], value: float) -> float:
+        """
+        Returns the closest lower value from a sorted list
+        """
+        if isinstance(sorted_list[0], tuple):
+            sorted_list = [v[0] for v in sorted_list]
+        i = bisect_right(sorted_list, value)
+        return round(sorted_list[i - 1], 2) if i > 0 else None
+
+    def _wave_to_diff(self, wave: int) -> float:
+        """
+        Converts waveform value to a difference value
+        """
+        if wave < 46.875:
+            return -5/(wave-50)
+        elif wave < 68.125:
+            return 8/25*(wave-(335/8))
+        else:
+            return (-5/(wave-65)) + 10
+
+
+    def _create_blocks(self, from_list: List[tuple], max_diff: float, compare: bool = False) -> List[tuple]:
+        """
+        Groups values into blocks based on max_diff
+        """
+        blocks = []
+        temp = set()
+        for idx, val in enumerate(from_list):
+            if not temp:
+                temp.add(val)
+                continue
+            avg = self._avg(temp)
+            if abs(val[0] - avg) > max_diff:
+                if compare:
+                    if abs(val[0] - (from_list[idx + 1][0] if idx + 1 < len(from_list) else val[0])) > abs(val[0] - avg):
+                        temp.add(val)
+                        continue
+                blocks.append((avg, round(from_list[idx - 1][1], 2)))
+                temp.clear()
+            temp.add(val)
+        blocks.append((self._avg(temp), round(val[1], 2)))
+        temp.clear()
+        return blocks
+
+    def _group_waveforms(self, song: Song, group_size: int) -> Tuple[List[tuple], float]:
+        grouped = []
+        temp = set()
+        i = 0
+        waveforms = len(song.waveform)
+        grouped_length = song.duration/waveforms*group_size
+        print(f"Grouping waveforms into groups of {group_size} (approximately {round(grouped_length, 2)} seconds), total waveforms: {waveforms}, total duration: {song.duration} seconds")
+        for val in song.waveform:
+            i += 1
+            temp.add(val)
+            if i % group_size == 0 or i == waveforms-1:
+                grouped.append((self._avg(temp), round(grouped_length/group_size*i, 2)))
+                temp.clear()
+        return grouped, grouped_length
+
+    def _zoom_in(self, input_list: List[Any], output_list: List[Any], input_interval_length: float, minus: int, plus: int) -> List[Any]:
+        # Implementation for zooming in on specific intervals
+        index = int(round(input_list[0][1]/input_interval_length)) - 1
+        candidates = []
+        max_diff = [0, 0]
+        alt_max_diff = [0, 0]
+        lower_bound = max(0, index - minus)
+        upper_bound = min(len(output_list) - 1, index + plus)
+        for idx, val in enumerate(output_list[lower_bound:upper_bound + 1]):
+            if isinstance(val, int):
+                if lower_bound > 0:
+                    diff = round(abs(val - output_list[lower_bound - 1:upper_bound][idx]), 2)
+                else:
+                    if idx > 0:
+                        diff = round(abs(val - output_list[lower_bound:upper_bound + 1][idx - 1]), 2)
+                    else:
+                        diff = 0
+                val = (val, lower_bound + idx)
+            else:
+                if lower_bound > 0:
+                    diff = round(abs(val[0] - output_list[lower_bound - 1:upper_bound][idx][0]), 2)
+                else:
+                    if idx > 0:
+                        diff = round(abs(val[0] - output_list[lower_bound:upper_bound + 1][idx - 1][0]), 2)
+                    else:
+                        diff = 0
+            candidates.append(val)
+            if diff > max_diff[0] + self._wave_to_diff(val[0]):
+                max_diff = [diff, idx]
+            if diff > alt_max_diff[0]:
+                alt_max_diff = [diff, idx]
+        if max_diff is None or max_diff[0] == 0:
+            max_diff = alt_max_diff
+        if max_diff[1] - 1 >= 0:
+            chosen = [candidates[max_diff[1] - 1], candidates[max_diff[1]]]
+        else:
+            chosen = [candidates[max_diff[1]]]
+        return chosen
+
+    def zoom_out_phase(self, song: Song) -> Tuple[List[tuple], List[tuple], float]:
+        # Groups waveforms into groups of 10 (approximately 2 seconds) and for each group takes the average waveform
+        values_grouped, grouped_length = self._group_waveforms(song, 10)
+        # Goes through grouped values and compares each value to the average of the current forming group, when too distinct, adds current forming group to new list and starts forming new group
+        small_blocks = self._create_blocks(values_grouped, 5, compare=False)   #5
+        medium_blocks = self._create_blocks(small_blocks, 10, compare=True)
+        return medium_blocks, values_grouped, grouped_length
+
+    def zoom_in_phase(self, song: Song, medium_blocks: List[tuple], values_grouped: List[tuple], grouped_length: float, beatnet_analysis: AudioAnalysis, librosa_analysis: AudioAnalysis) -> List[tuple]:
+        grouped_chosen = self._zoom_in(medium_blocks, values_grouped, grouped_length, 2, 2)
+        wave_length = float(song.duration/len(song.waveform))
+        wave_chosen = self._zoom_in(grouped_chosen, song.waveform, wave_length, 9, 10)
+        wave_chosen_index = int(wave_chosen[0][1])
+        waveform_based_start_time = round(wave_chosen_index * wave_length, 2)
+        used_analysis = beatnet_analysis if beatnet_analysis.bpm_confidence and (not librosa_analysis.bpm_confidence or beatnet_analysis.bpm_confidence > librosa_analysis.bpm_confidence) else librosa_analysis
+        if used_analysis is beatnet_analysis:
+            timestamps = [t[0] for t in beatnet_analysis.beat_timestamps]
+        else:
+            timestamps = librosa_analysis.beat_timestamps
+        start_time = self._closest_lower(timestamps, waveform_based_start_time)
+        if start_time is None:
+            start_time = waveform_based_start_time
+        return start_time
+
+    def analyze(self, song: Song, beatnet_analysis: AudioAnalysis, librosa_analysis: AudioAnalysis) -> AudioAnalysis:
+        """
+        Estimates best starting time in miliseconds for playing the song
+        Calculates based on waveforms of the song
+        """
+        if song.duration == 0 or not song.waveform:
+            return AudioAnalysis(
+                bpm=None,
+                bpm_confidence=None,
+                beat_intervals=None,
+                beat_timestamps=None,
+                start_time=0,
+                end_time=0
+            )
+
+        medium_blocks, values_grouped, grouped_length = self.zoom_out_phase(song)
+        start_time = self.zoom_in_phase(song, medium_blocks, values_grouped, grouped_length, beatnet_analysis, librosa_analysis)
+
+        reversed_medium_blocks = list(reversed(medium_blocks))
+        reversed_values_grouped = list(reversed(values_grouped))
+
+        end_time = self.zoom_in_phase(song, reversed_medium_blocks, reversed_values_grouped, grouped_length, beatnet_analysis, librosa_analysis)
+        return AudioAnalysis(
+            bpm=None,
+            bpm_confidence=None,
+            beat_intervals=None,
+            beat_timestamps=None,
+            start_time=start_time,
+            end_time=end_time
+        )
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\audio_analysis\__init__.py ===
+
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\audius_import\audius_database.py ===
+from __future__ import annotations
+
+from typing import Any, Iterable
+
+from database.admin_client import get_admin_supabase
+from models.song_model import Song
+
+AUDIUS_URL = "https://audius.co"
+
+
+def _first(response: Any) -> dict | None:
+    data = getattr(response, "data", None) or []
+    return data[0] if data else None
+
+
+def _find_or_create(
+    client: Any,
+    table: str,
+    name: str | None,
+    create_missing: bool,
+) -> int | None:
+    name = (name or "").strip()
+    if not name:
+        return None
+
+    row = _first(
+        client.table(table)
+        .select("id")
+        .ilike("name", name)
+        .limit(1)
+        .execute()
+    )
+    if row:
+        return row["id"]
+
+    if not create_missing:
+        return None
+
+    row = _first(
+        client.table(table)
+        .insert({"name": name})
+        .execute()
+    )
+    return row["id"] if row else None
+
+
+def upload_songs(
+    songs: Iterable[Song],
+    *,
+    create_artists: bool = True,
+    create_albums: bool = True,
+    update_existing: bool = False,
+) -> tuple[int, int]:
+    client = get_admin_supabase()
+    inserted = 0
+    skipped = 0
+
+    for song in songs:
+        if not song.audius_id:
+            continue
+
+        existing = _first(
+            client.table("audius_song_data")
+            .select("song_id")
+            .eq("audius_id", song.audius_id)
+            .limit(1)
+            .execute()
+        )
+
+        if existing and not update_existing:
+            skipped += 1
+            continue
+
+        artist_id = _find_or_create(
+            client,
+            "artists",
+            song.artist,
+            create_artists,
+        )
+
+        genre = ", ".join(song.genre or [])
+        share_url = (
+            f"{AUDIUS_URL}{song.audius_permalink}"
+            if song.audius_permalink
+            else None
+        )
+
+        song_record = {
+            "title": song.title,
+            "artist_id": artist_id,
+            "duration": song.duration,
+            "genre": genre or None,
+            "mood": song.audius_mood,
+            "bpm": song.bpm,
+            "release_date": song.release_date,
+            "image": song.image,
+            "share_url": share_url,
+            "tags": song.audius_tags or [],
+        }
+
+        if existing:
+            song_id = existing["song_id"]
+            client.table("songs").update(song_record).eq(
+                "id", song_id
+            ).execute()
+            inserted += 1
+        else:
+            created = _first(
+                client.table("songs").insert(song_record).execute()
+            )
+            if not created:
+                continue
+            song_id = created["id"]
+
+        audius_record = {
+            "song_id": song_id,
+            "audius_id": song.audius_id,
+            "track_cid": song.audius_track_cid,
+            "audius_user_id": song.audius_user_id,
+            "audius_permalink": song.audius_permalink,
+            "audius_license": song.audius_license,
+            "audius_license_url": song.audius_license_url,
+            "audius_mood": song.audius_mood,
+            "audius_tags": song.audius_tags or [],
+            "audius_play_count": song.audius_play_count,
+            "audius_repost_count": song.audius_repost_count,
+            "audius_favorite_count": song.audius_favorite_count,
+            "audius_comment_count": song.audius_comment_count,
+            "audius_is_downloadable": song.audius_is_downloadable,
+        }
+
+        if existing:
+            client.table("audius_song_data").update(
+                audius_record
+            ).eq("song_id", song_id).execute()
+        else:
+            client.table("audius_song_data").insert(
+                audius_record
+            ).execute()
+            inserted += 1
+
+    return inserted, skipped
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\audius_import\audius_importer.py ===
+from __future__ import annotations
+
+import json
+import logging
+import os
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
+
+import dotenv
+import requests
+
+from models.song_model import Song
+
+dotenv.load_dotenv()
+logger = logging.getLogger(__name__)
+
+AUDIUS_API = "https://api.audius.co/v1"
+PAGE_SIZE = 100
+
+# Explicitly commercial-compatible licenses only.
+COMMERCIAL_LICENSES = {
+    "cc0",
+    "cc-by",
+    "cc-by-sa",
+    "creative commons attribution",
+    "creative commons attribution-sharealike",
+    "public domain",
+}
+
+
+def load_audius_api_key() -> str:
+    value = os.getenv("AUDIUS_API_KEY")
+    if not value:
+        raise RuntimeError("AUDIUS_API_KEY is not configured.")
+    return value
+
+
+def _license_is_commercial(value: Any) -> bool:
+    # Audius null licenses use the platform's default commercially viable license.
+    if value is None:
+        return True
+
+    license_name = str(value).lower().strip()
+    if not license_name:
+        return False
+
+    if "nc" in license_name or "nd" in license_name:
+        return False
+
+    return any(
+        allowed in license_name
+        for allowed in COMMERCIAL_LICENSES
+    )
+
+
+def _as_list(value: Any) -> List[str]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def _artwork_url(value: Any) -> Optional[str]:
+    if isinstance(value, dict):
+        return (
+            value.get("1000x1000")
+            or value.get("480x480")
+            or value.get("150x150")
+        )
+    return str(value) if value else None
+
+
+def audius_track_to_song(track: Dict[str, Any]) -> Song:
+    user = track.get("user") or {}
+
+    return Song.from_dict(
+        {
+            "title": track.get("title") or "Untitled",
+            "audius_id": track.get("id"),
+            "audius_track_cid": track.get("track_cid"),
+            "audius_user_id": user.get("id"),
+            "audius_permalink": track.get("permalink"),
+            "artist": user.get("name") or user.get("handle"),
+            "release_date": track.get("release_date"),
+            "duration": track.get("duration"),
+            "genre": _as_list(track.get("genre")),
+            "audius_mood": track.get("mood"),
+            "audius_tags": _as_list(track.get("tags")),
+            "audius_license": track.get("license"),
+            "audius_license_url": track.get("license_url"),
+            "audius_play_count": track.get("play_count"),
+            "audius_repost_count": track.get("repost_count"),
+            "audius_favorite_count": track.get("favorite_count"),
+            "audius_comment_count": track.get("comment_count"),
+            "audius_is_downloadable": track.get("is_downloadable"),
+            "image": _artwork_url(track.get("artwork")),
+            "shareurl": track.get("permalink"),
+            "bpm": track.get("bpm"),
+            "audio_url": None,
+            "download_url": None,
+        }
+    )
+
+
+def _fetch_page(
+    session: requests.Session,
+    api_key: str,
+    endpoint: str,
+    *,
+    limit: int,
+    offset: int = 0,
+    query: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    params = {
+        "api_key": api_key,
+        "app_name": "vibe-and-ride-utils",
+        "limit": min(limit, PAGE_SIZE),
+        "offset": offset,
+    }
+    if query:
+        params["query"] = query
+
+    response = session.get(
+        f"{AUDIUS_API}/{endpoint}",
+        params=params,
+        headers={"x-api-key": api_key},
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    data = payload.get("data", payload)
+
+    if not isinstance(data, list):
+        raise RuntimeError("Audius response did not contain a track list")
+
+    return [item for item in data if isinstance(item, dict)]
+
+
+def fetch_audius_tracks(
+    api_key: str,
+    limit: int,
+    queries: Iterable[str] = (),
+) -> List[Dict[str, Any]]:
+    """Fetch trending tracks and optional workout-oriented searches.
+
+    Requests use the maximum page size and one Session to minimize overhead.
+    Results are deduplicated locally before license filtering.
+    """
+    if limit <= 0:
+        return []
+
+    queries = [query.strip() for query in queries if query.strip()]
+    tracks: Dict[str, Dict[str, Any]] = {}
+
+    with requests.Session() as session:
+        endpoints = [("tracks/trending", None)]
+        endpoints.extend(("tracks/search", query) for query in queries)
+
+        for endpoint, query in endpoints:
+            offset = 0
+            while len(tracks) < limit:
+                page = _fetch_page(
+                    session,
+                    api_key,
+                    endpoint,
+                    limit=min(PAGE_SIZE, limit - len(tracks)),
+                    offset=offset,
+                    query=query,
+                )
+                if not page:
+                    break
+
+                for track in page:
+                    track_id = str(track.get("id", "")).strip()
+                    if track_id:
+                        tracks.setdefault(track_id, track)
+
+                if len(page) < PAGE_SIZE:
+                    break
+                offset += len(page)
+
+    return list(tracks.values())
+
+
+def import_audius_tracks(
+    limit: int,
+    queries: Iterable[str] = (),
+    include_unlicensed: bool = False,
+    include_non_commercial: bool = False,
+) -> List[Song]:
+    api_key = load_audius_api_key()
+    raw_tracks = fetch_audius_tracks(api_key, limit, queries)
+
+    songs: List[Song] = []
+    for track in raw_tracks:
+        if not include_unlicensed and not _license_is_commercial(
+            track.get("license")
+        ) and not track.get("is_streamable"):
+            continue
+
+        try:
+            songs.append(audius_track_to_song(track))
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("Skipping malformed Audius track: %s", exc)
+
+        if len(songs) >= limit:
+            break
+
+    return songs
+
+
+def write_songs_json(songs: Iterable[Song], output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(
+            [song.to_record() for song in songs],
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\database\admin_client.py ===
+from __future__ import annotations
+import supabase
+import os
+import dotenv
+from typing import Any
+
+_ENV_LOADED = False
+
+
+def _ensure_env_loaded() -> None:
+    global _ENV_LOADED
+    if not _ENV_LOADED:
+        dotenv.load_dotenv()
+        _ENV_LOADED = True
+
+
+def _get_env_value(name: str) -> str:
+    _ensure_env_loaded()
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(
+            f"{name} is not configured. Add it to .env or the environment."
+        )
+    return value
+
+
+def _get_supabase_url() -> str:
+    _ensure_env_loaded()
+    url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    if not url:
+        raise RuntimeError(
+            "SUPABASE_URL is not configured. Add it to .env or the environment."
+        )
+    return url
+
+
+def create_admin_supabase() -> Any:
+    supabase_url = _get_supabase_url()
+    secret_key = _get_env_value("SUPABASE_SECRET_KEY")
+    return supabase.create_client(supabase_url, secret_key)
+
+
+def get_admin_supabase() -> Any:
+    return create_admin_supabase()
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\database\methods.py ===
+from typing import Any, List
+import supabase
+from models.song_model import Song
+
+def _effective_client(client: Any | None) -> Any:
+    return client if client is not None else supabase
+
+def _extract_data(response: Any) -> List[dict[str, Any]]:
+    if isinstance(response, dict):
+        data = response.get("data")
+    else:
+        data = getattr(response, "data", None)
+
+    if data is None:
+        data = [{}]
+
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        return [data]
+
+    raise RuntimeError("Unexpected Supabase data shape")
+
+def _get_table(client, tableName: str):
+    table_method = getattr(client, "table", None) or getattr(client, "from_", None)
+    if table_method is None:
+        raise AttributeError("Supabase client must expose table() or from_()")
+    return table_method(tableName)
+
+
+def _execute_query(query):
+    response = query.execute()
+    if isinstance(response, dict):
+        error = response.get("error")
+        data = response.get("data", [])
+    else:
+        error = getattr(response, "error", None)
+        data = getattr(response, "data", [])
+    if error:
+        raise RuntimeError(f"Supabase error: {error}")
+    return data or []
+
+def _song_from_record(record: dict[str, Any]) -> Song:
+    return Song.from_dict(record)
+
+def _jamendo_song_data_from_record(record: dict[str, Any]) -> Song:
+    return Song.from_dict(record)
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\database\songs.py ===
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from models.audio_analysis_model import AudioAnalysis
+from models.song_model import Song
+from database.methods import _effective_client, _extract_data, _get_table, _execute_query, _song_from_record
+
+def get_song_by_id(id: int, client: Any | None = None) -> Optional[Song]:
+    client = _effective_client(client)
+    response = (
+        client.table("songs")
+        .select("*")
+        .eq("id", id)
+        .limit(1)
+        .execute()
+    )
+    records = _extract_data(response)
+    return _song_from_record(records[0]) if records else None
+
+def get_jamendo_song_data_by_song_id(id: int, client: Any | None = None) -> Optional[Song]:
+    client = _effective_client(client)
+    response = (
+        client.table("jamendo_song_data")
+        .select("*")
+        .eq("song_id", id)
+        .limit(1)
+        .execute()
+    )
+    records = _extract_data(response)
+    return _jamendo_song_data_from_record(records[0]) if records else None
+
+
+def jamendo_id_exists(jamendo_id: str, client: Any | None = None) -> bool:
+    client = _effective_client(client)
+    response = (
+        client.table("songs")
+        .select("id")
+        .eq("jamendo_id", jamendo_id)
+        .limit(1)
+        .execute()
+    )
+    return bool(_extract_data(response))
+
+
+def add_song(song: Song, client: Any | None = None, force: bool = False) -> Song:
+    if not song.jamendo_id:
+        raise ValueError("Song must have a jamendo_id")
+
+    client = _effective_client(client)
+    data = song.to_record()
+    if not force:
+        if jamendo_id_exists(song.jamendo_id, client=client):
+                raise ValueError(f"Song with jamendo_id={song.jamendo_id} already exists")
+        response = (
+            client.table("songs")
+            .insert(data)
+            .select("*")
+            .execute()
+        )
+    else:
+        response = (
+            client.table("songs")
+            .upsert(data, on_conflict="jamendo_id")
+            .select("*")
+            .execute()
+        )
+    records = _extract_data(response)
+    if not records:
+        raise RuntimeError("Failed to insert song")
+
+    return _song_from_record(records[0])
+
+def fetch_unanalyzed_songs(client, limit: int = 50) -> List[Song]:
+    table = _get_table(client, "songs")
+    try:
+        query = (
+            table.select("*")
+            .or_("bpm.is.null")
+            .limit(limit)
+        )
+        rows = _execute_query(query)
+    except Exception:
+        fallback_limit = max(limit * 4, 100)
+        rows = _execute_query(table.select("*").limit(fallback_limit))
+        rows = [
+            row
+            for row in rows
+            if row.get("bpm") is None
+        ][:limit]
+
+    return [Song.from_dict(row) for row in rows]
+
+def fetch_songs(client, limit: int = 10) -> List[Song]:
+    table = _get_table(client, "songs")
+    try:
+        query = (
+            table.select("*")
+            .limit(limit)
+        )
+        rows = _execute_query(query)
+    except Exception:
+        fallback_limit = max(limit * 4, 1000)
+        rows = _execute_query(table.select("*").limit(fallback_limit))
+        rows = rows[:limit]
+
+    return [Song.from_dict(row) for row in rows]
+
+
+
+def update_song_analysis(client, song_id: int, analysis: AudioAnalysis) -> None:
+    table = _get_table(client, "songs")
+    record: Dict[str, Any] = {
+        "bpm": analysis.bpm,
+        "start_time": analysis.start_time,
+        "end_time": analysis.end_time,
+    }
+    query = table.update(record).eq("id", song_id)
+    _execute_query(query)
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\database\workouts.py ===
+from typing import Any, List, Optional, TYPE_CHECKING, Union
+
+from database.methods import _extract_data, _effective_client
+from models.workout_model import Workout
+
+if TYPE_CHECKING:
+    from workout_parsing.workout_parser import ZwoNode
+
+def upload_workout(workout: Workout, client: Any | None = None) -> None:
+    client = _effective_client(client)
+
+    data = workout.to_record()
+    response = (
+        client.table("workouts")
+        .insert(data)
+        .select("*")
+        .execute()
+    )
+    records = _extract_data(response)
+    if not records:
+        raise RuntimeError("Failed to insert workout")
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\database\__init__.py ===
+"""Database access layer for Zwift Music."""
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\jamendo_import\jamendo_database.py ===
+from __future__ import annotations
+
+from typing import Any, Iterable
+
+from database.admin_client import get_admin_supabase
+from models.song_model import Song
+
+
+def _first(response: Any) -> dict | None:
+    rows = getattr(response, "data", None) or []
+    return rows[0] if rows else None
+
+
+def _find_or_create(
+    client: Any,
+    table: str,
+    name: str | None,
+    create_missing: bool,
+) -> int | None:
+    name = (name or "").strip()
+    if not name:
+        return None
+
+    row = _first(
+        client.table(table)
+        .select("id")
+        .ilike("name", name)
+        .limit(1)
+        .execute()
+    )
+    if row:
+        return row["id"]
+
+    if not create_missing:
+        return None
+
+    row = _first(
+        client.table(table)
+        .insert({"name": name})
+        .execute()
+    )
+    return row["id"] if row else None
+
+
+def upload_songs(
+    songs: Iterable[Song],
+    *,
+    create_artists: bool = True,
+    create_albums: bool = True,
+    update_existing: bool = False,
+) -> tuple[int, int, int]:
+    client = get_admin_supabase()
+    inserted = skipped = failed = 0
+
+    for song in songs:
+        if not song.jamendo_id:
+            failed += 1
+            continue
+
+        existing = _first(
+            client.table("jamendo_song_data")
+            .select("song_id")
+            .eq("jamendo_id", int(song.jamendo_id))
+            .limit(1)
+            .execute()
+        )
+
+        if existing and not update_existing:
+            skipped += 1
+            continue
+
+        artist_id = _find_or_create(
+            client,
+            "artists",
+            song.artist,
+            create_artists,
+        )
+
+        album_id = _find_or_create(
+            client,
+            "albums",
+            song.jamendo_album_name,
+            create_albums,
+        )
+
+        song_data = {
+            "title": song.title,
+            "artist_id": artist_id,
+            "album_id": album_id,
+            "duration": song.duration,
+            "genre": ", ".join(song.genre or []) or None,
+            "mood": song.vartags[0] if song.vartags else None,
+            "description": None,
+            "release_date": song.release_date,
+            "image": song.image,
+            "share_url": song.shareurl,
+            "tags": song.vartags or [],
+        }
+
+        jamendo_data = {
+            "jamendo_id": int(song.jamendo_id),
+            "audio_url": song.audio_url,
+            "download_url": song.download_url,
+            "waveform": song.waveform,
+        }
+
+        try:
+            if existing:
+                song_id = existing["song_id"]
+
+                client.table("songs").update(song_data).eq(
+                    "id", song_id
+                ).execute()
+
+                client.table("jamendo_song_data").update(
+                    jamendo_data
+                ).eq("song_id", song_id).execute()
+            else:
+                created = _first(
+                    client.table("songs")
+                    .insert(song_data)
+                    .execute()
+                )
+                if not created:
+                    failed += 1
+                    continue
+
+                song_id = created["id"]
+                jamendo_data["song_id"] = song_id
+
+                client.table("jamendo_song_data").insert(
+                    jamendo_data
+                ).execute()
+
+                inserted += 1
+
+        except Exception as e:
+            print(f"Error occurred while processing song {song.jamendo_id}: {e}")
+            failed += 1
+
+    return inserted, skipped, failed
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\jamendo_import\jamendo_importer.py ===
+from __future__ import annotations
+
+import logging
+import os
+import sys
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import dotenv
+from database.admin_client import get_admin_supabase
+from database import songs as songs_repo
+from models.song_model import Song
+from models.model_methods import _str_to_dict
+from jamendo_import.jamendo_database import upload_songs
+dotenv.load_dotenv()
+
+try:
+    import requests
+except ImportError as exc:
+    raise RuntimeError(
+        "The requests library is required to run the Jamendo importer. "
+        "Install it with `py -m pip install requests`."
+    ) from exc
+
+logger = logging.getLogger(__name__)
+
+JAMENDO_ENDPOINT = "https://api.jamendo.com/v3.0/tracks/"
+SPEED_MAP = {
+    "low": 1,
+    "medium": 2,
+    "high": 4,
+    "veryhigh": 5,
+}
+
+
+def load_jamendo_client_id() -> str:
+    client_id = os.getenv("JAMENDO_CLIENT_ID")
+    if not client_id:
+        raise RuntimeError(
+            "JAMENDO_CLIENT_ID is not configured. Add it to .env or the environment."
+        )
+    return client_id
+
+
+def fetch_jamendo_tracks(client_id: str, limit: int, boost: str, groupby: str = "artist_id") -> List[Dict[str, Any]]:
+    if groupby not in ["artist_id", "album_id"]:
+        params = {
+            "client_id": client_id,
+            "format": "jsonpretty",
+            "limit": limit,
+            "include": "musicinfo",
+            "boost": boost
+        }
+    else:
+        params = {
+            "client_id": client_id,
+            "format": "jsonpretty",
+            "limit": limit,
+            "include": "musicinfo",
+            "groupby": groupby,
+            "boost": boost
+        }
+
+    response = requests.get(JAMENDO_ENDPOINT, params=params, timeout=30)
+    try:
+        response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError(f"Jamendo request failed: {exc}") from exc
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise RuntimeError("Jamendo returned invalid JSON") from exc
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("Jamendo response has unexpected top-level shape")
+
+    headers = payload.get("headers", {})
+    if headers.get("status") != "success":
+        error_message = headers.get("error_message") or str(headers.get("status"))
+        raise RuntimeError(f"Jamendo API error: {error_message}")
+
+    results = payload.get("results")
+    if results is None:
+        raise RuntimeError("Jamendo response missing results field")
+
+    if not isinstance(results, list):
+        raise RuntimeError("Jamendo results field must be a list")
+
+    return results[:limit]
+
+
+def _normalize_list(value: Any) -> Optional[str]:
+    if not value:
+        return None
+    if isinstance(value, str):
+        processed = value.strip()
+        return processed or None
+    if isinstance(value, Iterable):
+        return value
+    return str(value).strip() or None
+
+
+def jamendo_speed_to_int(speed_value: Any) -> int:
+    if not speed_value:
+        return 0
+    speed_key = str(speed_value).lower().strip()
+    return SPEED_MAP.get(speed_key, 0)
+
+
+def jamendo_result_to_song(result: Dict[str, Any]) -> Song:
+    if not isinstance(result, dict):
+        raise ValueError("Jamendo track result must be a JSON object")
+
+    result = dict(result)
+    result["jamendo_id"] = result.get("id")
+    result["jamendo_artist_id"] = result.get("artist_id")
+    result["jamendo_album_name"] = (
+        result.get("album_name")
+        or (result.get("album") or {}).get("name")
+    )
+    result["title"] = result.get("name") or "Untitled"
+    result["artist"] = result.get("artist_name")
+
+    musicinfo = result.get("musicinfo") or {}
+    if not isinstance(musicinfo, dict):
+        musicinfo = {}
+
+    tags = musicinfo.get("tags") or {}
+    if not isinstance(tags, dict):
+        tags = {}
+
+    result["lang"] = musicinfo.get("lang")
+    result["gender"] = musicinfo.get("gender")
+    result["is_instrumental"] = (
+        musicinfo.get("vocalinstrumental") == "instrumental"
+    )
+    result["is_electric"] = (
+        musicinfo.get("acousticelectric") == "electric"
+    )
+    result["genre"] = _normalize_list(tags.get("genres"))
+    result["instruments"] = _normalize_list(tags.get("instruments"))
+    result["vartags"] = _normalize_list(tags.get("vartags"))
+    result["speed"] = jamendo_speed_to_int(musicinfo.get("speed"))
+
+    result["audio_url"] = result.get("audio")
+    result["download_url"] = result.get("audiodownload")
+    result["waveform"] = _str_to_dict(result.get("waveform")).get("peaks")
+
+    return Song.from_dict(result)
+
+
+def _jamendo_id_exists(jamendo_id: str, client: Any) -> bool:
+    return songs_repo.jamendo_id_exists(jamendo_id, client=client)
+
+
+def import_jamendo_tracks(
+    results: Iterable[Dict[str, Any]],
+    force: bool = False,
+    create_artists: bool = True,
+    create_albums: bool = True,
+) -> Dict[str, int]:
+    results = list(results)
+    songs: List[Song] = []
+    failed = 0
+
+    for result in results:
+        try:
+            songs.append(jamendo_result_to_song(result))
+        except (TypeError, ValueError, KeyError):
+            failed += 1
+
+    inserted, skipped, upload_failed = upload_songs(
+        songs,
+        create_artists=create_artists,
+        create_albums=create_albums,
+        update_existing=force,
+    )
+
+    return {
+        "fetched": len(results),
+        "inserted": inserted,
+        "skipped": skipped,
+        "failed": failed + upload_failed,
+    }
+
+BOOST_OPTIONS = ["buzzrate", "downloads_week", "downloads_month", "downloads_total", "listens_week", "listens_month", "listens_total", "popularity_week", "popularity_month", "popularity_total"]
+
+def run_importer(limit, force: bool = False, boost: str = "popularity_total", groupby: str = "artist_id", create_artists: bool = True, create_albums: bool = True) -> int:
+    client_id = load_jamendo_client_id()
+    tracks = []
+    print("Fetching songs from Jamendo...")
+    if boost == "all":
+        for boost_option in BOOST_OPTIONS:
+            tracks.extend(fetch_jamendo_tracks(client_id, limit, boost_option, groupby))
+    else:
+        if boost not in BOOST_OPTIONS:
+            print(f"Invalid boost option '{boost}'. Defaulting to 'popularity_total'.")
+            boost = "popularity_total"
+        tracks = fetch_jamendo_tracks(client_id, limit, boost, groupby)
+    print(f"Received {len(tracks)} tracks.\n")
+    print("Importing songs...\n")
+
+    stats = import_jamendo_tracks(tracks, force, create_artists, create_albums)
+
+    print("\nImport complete.\n")
+    print(f"Fetched: {stats['fetched']}")
+    print(f"Inserted: {stats['inserted']}")
+    print(f"Skipped: {stats['skipped']}")
+    print(f"Failed: {stats['failed']}")
+
+    return stats["failed"]
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\jamendo_import\__init__.py ===
+
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\models\audio_analysis_model.py ===
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
+
+@dataclass(frozen=True)
+class AudioAnalysis:
+    bpm: int
+    bpm_confidence: Optional[int]
+    beat_intervals: List[float]
+    beat_timestamps: List[float]|List[tuple[float, int]]
+    start_time: float = 0
+    end_time: float = 0
+
+    def to_record(self) -> Dict[str, Any]:
+        return {
+            "bpm": self.bpm,
+            "bpm_confidence": self.bpm_confidence,
+            "beat_intervals": self.beat_intervals,
+            "beat_timestamps": self.beat_timestamps,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+        }
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\models\jamendo_song_data_model.py ===
+
+
+from realtime import dataclass
+
+
+@dataclass(frozen=True)
+class JamendoSongData:
+    song_id: int
+    jamendo_id: int
+    audio_url: str
+    download_url: str
+    waveform: list[int] | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JamendoSongData":
+        return cls(
+            song_id=data["song_id"],
+            jamendo_id=data["jamendo_id"],
+            audio_url=data["audio_url"],
+            download_url=data["download_url"],
+            waveform=data.get("waveform"),
+        )
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\models\model_methods.py ===
+from typing import Any, Optional, List
+import ast
+import json
+from datetime import datetime, timezone
+
+def _optional_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _optional_int(value: Any, default: int = 0) -> int:
+    if value is None:
+        return default
+    return int(value)
+
+def _optional_float(value: Any, default: float = 0) -> float:
+    if value is None:
+        return default
+    return float(value)
+
+
+def _optional_int_or_none(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    return int(value)
+
+
+def _optional_float_list(value: Any) -> Optional[List[float]]:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return [float(item) for item in value]
+    return [float(item) for item in list(value)]
+
+def _str_to_list(value: str) -> List:
+    """Convert string representation of list to actual list. Handles None, empty strings, and actual lists."""
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return value
+    try:
+        result = ast.literal_eval(value)
+        return result if isinstance(result, list) else []
+    except (ValueError, SyntaxError):
+        return []
+
+def _str_to_dict(value: str) -> dict:
+    if value is None or value == "":
+        return {}
+    if isinstance(value, dict):
+        return value
+    try:
+        return json.loads(value)
+    except (ValueError, json.JSONDecodeError):
+        return {}
+
+def estimate_cadence_from_power(power: float) -> Optional[float]:
+    """
+    Simple documented approximation mapping power -> cadence (fallback).
+    Formula (first minimal implementation):
+      max(75, min(115, 70 + 30 * p))
+    Clamped to [75, 115] RPM.
+
+    Rationale: 80 RPM is a reasonable mid-point for many structured workouts.
+    This is only a heuristic fallback for intervals that specify power but not cadence.
+    """
+    if power == 0:
+        power = None
+    try:
+        p = float(power)
+    except Exception:
+        return 80 #Default cadence value if there is literally no information
+    cadence = round(max(75, min(115, 70 + 30 * p)))
+    return cadence
+
+def _is_bike_sport(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    try:
+        return int(value) == 1
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().lower() in {"bike", "bicycle", "cycling", "true", "yes", "1"}
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\models\song_model.py ===
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+from models.model_methods import _optional_float_list, _optional_int, _optional_int_or_none, _optional_str, _str_to_list, _str_to_dict, _optional_float
+
+
+@dataclass(frozen=True)
+class Song:
+    title: str
+    jamendo_id: Optional[str] = None
+    jamendo_artist_id: Optional[int] = None
+    jamendo_album_name: Optional[str] = None
+    audius_id: Optional[str] = None
+    audius_track_cid: Optional[str] = None
+    audius_user_id: Optional[str] = None
+    audius_permalink: Optional[str] = None
+    audius_license: Optional[str] = None
+    audius_license_url: Optional[str] = None
+    audius_mood: Optional[str] = None
+    audius_tags: List[str] = None
+    audius_play_count: Optional[int] = None
+    audius_repost_count: Optional[int] = None
+    audius_favorite_count: Optional[int] = None
+    audius_comment_count: Optional[int] = None
+    audius_is_downloadable: Optional[bool] = None
+    id: Optional[int] = None
+    artist: Optional[str] = None
+    release_date: Optional[str] = None
+    genre: List[str] = None
+    instruments: List[str] = None
+    vartags: List[str] = None
+    duration: int = None
+    speed: int = 0
+    bpm: int = 0
+    bpm_confidence: int = 0
+    beat_intervals: Optional[List[float]] = None
+    audio_url: Optional[str] = None
+    download_url: Optional[str] = None
+    start_time: float = 0
+    end_time: float = 0
+    waveform: List[int] = None
+    image: Optional[str] = None
+    shareurl: Optional[str] = None
+    license_ccurl: Optional[str] = None
+    content_id_free: Optional[bool] = None
+    lang: Optional[str] = None
+    gender: Optional[str] = None
+    is_instrumental: Optional[bool] = None
+    is_electric: Optional[bool] = None
+    license_nd: Optional[bool] = None
+    license_sa: Optional[bool] = None
+    license_nc: Optional[bool] = None
+    license_version: Optional[float] = None
+
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Song":
+        return cls(
+            id=_optional_int_or_none(data.get("id")),
+            title=str(data["title"]),
+            jamendo_id=_optional_str(data.get("jamendo_id")),
+            jamendo_artist_id=_optional_int_or_none(
+                data.get("jamendo_artist_id")
+            ),
+            jamendo_album_name=_optional_str(data.get("jamendo_album_name")),
+            audius_id=_optional_str(data.get("audius_id")),
+            audius_track_cid=_optional_str(data.get("audius_track_cid")),
+            audius_user_id=_optional_str(data.get("audius_user_id")),
+            audius_permalink=_optional_str(data.get("audius_permalink")),
+            audius_license=_optional_str(data.get("audius_license")),
+            audius_license_url=_optional_str(data.get("audius_license_url")),
+            audius_mood=_optional_str(data.get("audius_mood")),
+            audius_tags=_str_to_list(data.get("audius_tags")),
+            audius_play_count=_optional_int(data.get("audius_play_count")),
+            audius_repost_count=_optional_int(data.get("audius_repost_count")),
+            audius_favorite_count=_optional_int(data.get("audius_favorite_count")),
+            audius_comment_count=_optional_int(data.get("audius_comment_count")),
+            audius_is_downloadable=data.get("audius_is_downloadable"),
+            artist=_optional_str(data.get("artist")),
+            genre=_str_to_list(data.get("genre")),
+            instruments=_str_to_list(data.get("instruments")),
+            vartags=_str_to_list(data.get("vartags")),
+            release_date=_optional_str(data.get("release_date")),
+            duration=_optional_int(data.get("duration")),
+            speed=_optional_int(data.get("speed"), default=0),
+            bpm=_optional_int(data.get("bpm"), default=0),
+            bpm_confidence=_optional_int(data.get("bpm_confidence"), default=0),
+            audio_url=_optional_str(data.get("audio_url")),
+            download_url=_optional_str(data.get("download_url")),
+            beat_intervals=_optional_float_list(data.get("beat_intervals")),
+            start_time=_optional_float(data.get("start_time")),
+            end_time=_optional_float(data.get("end_time")),
+            waveform=_str_to_list(data.get("waveform")),
+            image=_optional_str(data.get("image")),
+            shareurl=_optional_str(data.get("shareurl")),
+            license_ccurl=_optional_str(data.get("license_ccurl")),
+            lang=_optional_str(data.get("lang")),
+            gender=_optional_str(data.get("gender")),
+            is_instrumental=bool(data.get("is_instrumental")),
+            is_electric=bool(data.get("is_electric")),
+            content_id_free=bool(data.get("content_id_free")),
+            license_nd=bool(data.get("license_nd")),
+            license_sa=bool(data.get("license_sa")),
+            license_nc=bool(data.get("license_nc")),
+            license_version=_optional_float(data.get("license_version")),
+
+        )
+
+    def to_record(self) -> Dict[str, Any]:
+        return {
+            "title": self.title,
+            "jamendo_id": self.jamendo_id,
+            "jamendo_artist_id": self.jamendo_artist_id,
+            "jamendo_album_name": self.jamendo_album_name,
+            "audius_id": self.audius_id,
+            "audius_track_cid": self.audius_track_cid,
+            "audius_user_id": self.audius_user_id,
+            "audius_permalink": self.audius_permalink,
+            "audius_license": self.audius_license,
+            "audius_license_url": self.audius_license_url,
+            "audius_mood": self.audius_mood,
+            "audius_tags": self.audius_tags,
+            "audius_play_count": self.audius_play_count,
+            "audius_repost_count": self.audius_repost_count,
+            "audius_favorite_count": self.audius_favorite_count,
+            "audius_comment_count": self.audius_comment_count,
+            "audius_is_downloadable": self.audius_is_downloadable,
+            "artist": self.artist,
+            "release_date": self.release_date,
+            "genre": self.genre,
+            "duration": self.duration,
+            "speed": self.speed,
+            "bpm": self.bpm,
+            "bpm_confidence": self.bpm_confidence,
+            "audio_url": self.audio_url,
+            "download_url": self.download_url,
+            "beat_intervals": self.beat_intervals,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "waveform": self.waveform,
+            "image": self.image,
+            "shareurl": self.shareurl,
+            "license_ccurl": self.license_ccurl,
+            "vartags": self.vartags,
+            "instruments": self.instruments,
+            "lang": self.lang,
+            "gender": self.gender,
+            "is_instrumental": self.is_instrumental,
+            "is_electric": self.is_electric,
+            "content_id_free": self.content_id_free,
+            "license_nd": self.license_nd,
+            "license_sa": self.license_sa,
+            "license_nc": self.license_nc,
+            "license_version": self.license_version,
+        }
+
+
+
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\models\workout_model.py ===
+from __future__ import annotations
+
+from dataclasses import dataclass, field, asdict
+from statistics import mean
+from typing import Any, Dict, List, Optional, Union
+from models.model_methods import estimate_cadence_from_power, _is_bike_sport, _str_to_list, _optional_str, _optional_float
+
+ZwoValue = Union[str, int, float, bool, None]
+ZwoNode = Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class Interval:
+    duration: float
+    power: Optional[float] = None
+    power_low: Optional[float] = None
+    power_high: Optional[float] = None
+    cadence: Optional[float] = None
+    cadence_low: Optional[float] = None
+    cadence_high: Optional[float] = None
+    type: Optional[str] = None
+
+    def __post_init__(self):
+        if (self.power is None or self.power == 0.0):
+            if (self.power_low is not None and self.power_high is not None
+                and self.power_low != 0.0 and self.power_high != 0.0):
+                object.__setattr__(
+                    self,
+                    "power",
+                    (self.power_low + self.power_high) / 2
+                )
+            elif self.power_low is not None and self.power_low != 0.0:
+                object.__setattr__(
+                    self,
+                    "power",
+                    self.power_low
+                )
+            elif self.power_high is not None and self.power_high != 0.0:
+                object.__setattr__(
+                    self,
+                    "power",
+                    self.power_high
+                )
+            else:
+                object.__setattr__(
+                    self,
+                    "power",
+                    0.6
+                )
+
+        if (self.cadence is None or self.cadence == 0.0):
+            if (self.cadence_low is not None
+                and self.cadence_high is not None
+                and self.cadence_low != 0.0
+                and self.cadence_high != 0.0):
+                object.__setattr__(
+                    self,
+                    "cadence",
+                    round((self.cadence_low + self.cadence_high) / 2)
+                )
+            elif self.cadence_low is not None and self.cadence_low != 0.0:
+                object.__setattr__(
+                    self,
+                    "cadence",
+                    self.cadence_low
+                )
+            elif self.cadence_high is not None and self.cadence_high != 0.0:
+                object.__setattr__(
+                    self,
+                    "cadence",
+                    self.cadence_high
+                )
+            else:
+                object.__setattr__(
+                    self,
+                    "cadence",
+                    estimate_cadence_from_power(self.power)
+                )
+
+
+@dataclass(frozen=True)
+class Workout:
+    name: Optional[str] = None
+    author: Optional[str] = None
+    sport_type: Optional[ZwoValue] = None
+    tags: List[str] = field(default_factory=list)
+    description: Optional[str] = None
+    intervals: List[Interval] = field(default_factory=list)
+
+    @property
+    def total_duration(self) -> float:
+        return sum(interval.duration for interval in self.intervals)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Workout":
+        if not isinstance(data, dict):
+            raise ValueError("Workout data must be a dict")
+        return cls(
+            name=_optional_str(data.get("name")),
+            author=_optional_str(data.get("author")),
+            sport_type=_optional_str(data.get("sport_type_is_bike")),
+            tags=list(data.get("tags", [])),
+            description=_optional_str(data.get("description")),
+            intervals=[Interval(**interval) for interval in data.get("intervals")],
+        )
+
+    def to_record(self) -> Dict[str, Any]:
+            return {
+                "name": self.name,
+                "author": self.author,
+                "sport_type_is_bike": _is_bike_sport(self.sport_type),
+                "tags": self.tags,
+                "description": self.description,
+                "intervals": [asdict(interval) for interval in self.intervals],
+            }
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\models\__init__.py ===
+
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\tools\analyze_songs.py ===
+from __future__ import annotations
+
+import argparse
+
+from audio_analysis.service import AudioAnalysisService
+from database.methods import _effective_client
+from database.admin_client import get_admin_supabase
+
+admin_client = get_admin_supabase()
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Analyze songs from Supabase using librosa."
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum number of songs to analyze in this batch.",
+    )
+    parser.add_argument(
+        "--id",
+        type=int,
+        default=0,
+        help="Specify a song you want to analyze by ID in the database."
+    )
+    parser.add_argument(
+        "--force",
+        type=bool,
+        default=False,
+        help="If set True, analyzer will analyze songs even if they were previously analyzed and will update the values in database."
+    )
+    args = parser.parse_args()
+
+    client = _effective_client(client=admin_client)
+    service = AudioAnalysisService(client)
+    service.analyze(limit=args.limit, force=args.force, song_id=args.id)
+
+if __name__ == "__main__":
+    main()
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\tools\import_audius.py ===
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from audius_import.audius_importer import (
+    import_audius_tracks,
+    write_songs_json,
+)
+from audius_import.audius_database import upload_songs
+
+DEFAULT_QUERIES = [
+    "workout",
+    "fitness",
+    "running",
+    "high energy",
+    "training",
+    "gym",
+    "cardio",
+    "cycling",
+    " HIIT",
+]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Import commercially usable Audius workout tracks."
+    )
+    parser.add_argument("--limit", type=int, default=200)
+    parser.add_argument(
+        "--query",
+        action="append",
+        dest="queries",
+        help="Additional Audius search query. Can be repeated.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data/audius_songs.json"),
+    )
+    parser.add_argument(
+        "--include-unlicensed",
+        action="store_true",
+        help="Include tracks without an explicitly commercial license.",
+    )
+    parser.add_argument(
+        "--include-non-commercial",
+        action="store_true",
+        help="Include tracks with non-commercial or unknown licenses.",
+    )
+    parser.add_argument(
+        "--update-existing",
+        action="store_true",
+        help="Update existing Audius records instead of skipping them.",
+    )
+    parser.add_argument(
+        "--no-create-artists",
+        action="store_true",
+        help="Do not create missing artist records.",
+    )
+    parser.add_argument(
+        "--no-create-albums",
+        action="store_true",
+        help="Do not create missing album records.",
+    )
+    args = parser.parse_args()
+
+    queries = DEFAULT_QUERIES + (args.queries or [])
+    songs = import_audius_tracks(
+        limit=args.limit,
+        queries=queries,
+        include_unlicensed=args.include_unlicensed,
+        include_non_commercial=args.include_non_commercial,
+    )
+    write_songs_json(songs, args.output)
+
+    inserted, skipped = upload_songs(
+        songs,
+        create_artists=not args.no_create_artists,
+        create_albums=not args.no_create_albums,
+        update_existing=args.update_existing,
+    )
+    print(
+        f"Exported {len(songs)} songs; "
+        f"inserted {inserted}, skipped {skipped}"
+    )
+
+
+if __name__ == "__main__":
+    main()
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\tools\import_jamendo.py ===
+from __future__ import annotations
+import argparse
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from jamendo_import.jamendo_importer import run_importer
+MAX_TRACKS = 200
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Analyze songs from Supabase using librosa."
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=MAX_TRACKS,
+        help="Maximum number of songs to analyze in this batch.",
+    )
+    parser.add_argument(
+        "--force",
+        type=bool,
+        default=False,
+        help="If set True, analyzer will analyze songs even if they were previously analyzed and will update the values in database."
+    )
+    parser.add_argument(
+        "--boost",
+        type=str,
+        default="popularity_total",
+        help="The metric to boost the search results by."
+    )
+    parser.add_argument(
+        "--groupby",
+        type=str,
+        default="artist_id",
+        help="The metric to group the search results by."
+    )
+    parser.add_argument(
+        "--no-create-artists",
+        action="store_true",
+        help="Do not create missing artist records.",
+    )
+    parser.add_argument(
+        "--no-create-albums",
+        action="store_true",
+        help="Do not create missing album records.",
+    )
+    args = parser.parse_args()
+    run_importer(
+        limit=args.limit,
+        force=args.force,
+        boost=args.boost,
+        groupby=args.groupby,
+        create_artists=not args.no_create_artists,
+        create_albums=not args.no_create_albums,
+    )
+
+if __name__ == "__main__":
+    main()
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\tools\parse_files.py ===
+from __future__ import annotations
+
+import argparse
+
+from workout_parsing.workout_parser import WorkoutParser
+from database.methods import _effective_client
+from database.admin_client import get_admin_supabase
+
+admin_client = get_admin_supabase()
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Parse workout files."
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum number of workouts to parse in this batch.",
+    )
+    parser.add_argument(
+        "--stop_removal",
+        type=bool,
+        default=False,
+        help="If set True, the parser will not remove parsed workout files from the assets folder after parsing."
+    )
+    args = parser.parse_args()
+
+    client = _effective_client(client=admin_client)
+    service = WorkoutParser(client)
+    service.parse(limit=args.limit, stop_removal=args.stop_removal)
+
+if __name__ == "__main__":
+    main()
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\tools\__init__.py ===
+# This file makes tools a package.
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\workout_parsing\workout_parser.py ===
+from __future__ import annotations
+
+import logging
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any, List, Optional, Union
+
+from database.workouts import upload_workout
+from database.admin_client import get_admin_supabase
+from models.workout_model import Workout, Interval
+admin_client = get_admin_supabase()
+
+logger = logging.getLogger(__name__)
+
+class WorkoutParser:
+    def __init__(self, client: Any | None = None):
+        self.client = client if client is not None else admin_client
+
+    def parse(self, limit: int = 50, stop_removal: bool = False) -> None:
+        parsed_paths = self.parse_workouts(limit=limit)
+        if not stop_removal:
+            for path in parsed_paths:
+                try:
+                    path.unlink()
+                except Exception as e:
+                    logger.error(f"Failed to remove parsed workout file {path}: {e}")
+        for path in parsed_paths: print(path)
+
+    def parse_zwo_string(self, content: str, file_name: str = "Unnamed workout") -> Workout:
+        root = ET.fromstring(content)
+        intervals = []
+        for child in root:
+            if child.tag == "author":
+                author = str(child.text)
+            elif child.tag == "name":
+                if not str(child.text) == "Zwift Workout":
+                    name = str(child.text)
+                else:
+                    name = file_name
+            elif child.tag == "sportType":
+                sport_type = str(child.text)
+            elif child.tag == "description":
+                description = str(child.text)
+            elif child.tag == "tags":
+                tags = [str(tag.text) for tag in child if tag.text]
+            elif child.tag == "workout":
+                for ch in child:
+                    intervals.append(Interval(
+                        duration=float(ch.attrib.get("Duration", 0)),
+                        power=float(ch.attrib.get("Power", 0)),
+                        power_low=float(ch.attrib.get("PowerLow", 0)),
+                        power_high=float(ch.attrib.get("PowerHigh", 0)),
+                        cadence=float(ch.attrib.get("Cadence", 0)),
+                        cadence_low=float(ch.attrib.get("CadenceLow", 0)),
+                        cadence_high=float(ch.attrib.get("CadenceHigh", 0)),
+                        type=str(ch.tag),
+                    ))
+        return Workout(
+            name=name,
+            author=author,
+            sport_type=sport_type,
+            tags=tags,
+            description=description,
+            intervals=intervals,
+        )
+
+    def parse_zwo_file(self, path: Union[str, Path]) -> None:
+        path_obj = Path(path)
+        with path_obj.open("r", encoding="utf-8") as file:
+            source = Path(path)
+            workout = self.parse_zwo_string(file.read(), source.stem)
+            print(workout)
+            upload_workout(workout, client=admin_client)
+
+    def _default_asset_dirs(self) -> Path:
+        base = Path(__file__).resolve().parents[1] / "assets"
+        return base / "raw_workouts"
+
+    def parse_workouts(self, limit: int = 50, raw_dir: Optional[Union[str, Path]] = None) -> List[Path]:
+        if raw_dir is None:
+            raw_dir = self._default_asset_dirs()
+        raw_dir = Path(raw_dir)
+
+        parsed_paths: List[Path] = []
+        for source in sorted(raw_dir.glob("*.zwo"))[:limit]:
+            target_path = raw_dir / f"{source.stem}.zwo"
+            self.parse_zwo_file(source)
+            parsed_paths.append(target_path)
+        return parsed_paths
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\workout_parsing\__init__.py ===
+
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\main.py ===
+def main() -> None:
+    pass
+
+if __name__ == "__main__":
+    main()
+
+=== FILE: C:\Users\novak\Documents\vibe-and-ride-utils\requirements.txt ===
+#python=3.11.6
+supabase
+python-dotenv
+numpy
+pyaudio
+librosa
+beatnet
+madmom
+cython
+setuptools<=81
+git+https://github.com/CPJKU/madmom@main
+

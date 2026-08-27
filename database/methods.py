@@ -1,9 +1,17 @@
 from typing import Any, List
-import supabase
 from models.song_model import Song
 
+try:
+    import supabase
+except ImportError:  # Keep record helpers usable for offline tests/tools.
+    supabase = None
+
 def _effective_client(client: Any | None) -> Any:
-    return client if client is not None else supabase
+    if client is not None:
+        return client
+    if supabase is None:
+        raise RuntimeError("supabase-py is required when no client is supplied")
+    return supabase
 
 def _extract_data(response: Any) -> List[dict[str, Any]]:
     if isinstance(response, dict):
@@ -12,7 +20,7 @@ def _extract_data(response: Any) -> List[dict[str, Any]]:
         data = getattr(response, "data", None)
 
     if data is None:
-        data = [{}]
+        return []
 
     if isinstance(data, list):
         return data
@@ -41,4 +49,32 @@ def _execute_query(query):
     return data or []
 
 def _song_from_record(record: dict[str, Any]) -> Song:
+    """Flatten a normalized Supabase song response for the domain model."""
+    flattened = dict(record)
+    for relation in ("artists", "albums", "jamendo_song_data", "audius_song_data"):
+        related = flattened.pop(relation, None)
+        if isinstance(related, list):
+            related = related[0] if related else None
+        if isinstance(related, dict):
+            flattened.update(
+                {key: value for key, value in related.items() if key not in {"id", "song_id"}}
+            )
+
+    artist = record.get("artists")
+    if isinstance(artist, list):
+        artist = artist[0] if artist else None
+    if isinstance(artist, dict):
+        flattened["artist"] = artist.get("name")
+
+    album = record.get("albums")
+    if isinstance(album, list):
+        album = album[0] if album else None
+    if isinstance(album, dict):
+        flattened["jamendo_album_name"] = album.get("name")
+
+    # Provider tables have a shared song_id, not the fields on songs.
+    flattened.setdefault("id", record.get("id"))
+    return Song.from_dict(flattened)
+
+def _jamendo_song_data_from_record(record: dict[str, Any]) -> Song:
     return Song.from_dict(record)

@@ -26,9 +26,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--force",
-        type=bool,
-        default=False,
-        help="If set True, analyzer will analyze songs even if they were previously analyzed and will update the values in database."
+        action="store_true",
+        help="Analyze songs even if they already have a BPM value.",
     )
     args = parser.parse_args()
 

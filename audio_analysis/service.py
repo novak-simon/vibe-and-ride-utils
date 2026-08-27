@@ -48,6 +48,8 @@ class AudioAnalysisService:
 
     def analyze_by_id(self, id: int) -> None:
         song = get_song_by_id(id, self.db_client)
+        if song is None:
+            raise LookupError(f"Song with id={id} was not found")
         print(f"Analyzing {song.title}")
         self.analyze_song(song)
 

@@ -99,9 +99,9 @@ def upload_songs(
 
         jamendo_data = {
             "jamendo_id": int(song.jamendo_id),
-            "artist_id": song.jamendo_artist_id,
             "audio_url": song.audio_url,
             "download_url": song.download_url,
+            "waveform": song.waveform,
         }
 
         try:
@@ -134,7 +134,8 @@ def upload_songs(
 
                 inserted += 1
 
-        except Exception:
+        except Exception as e:
+            print(f"Error occurred while processing song {song.jamendo_id}: {e}")
             failed += 1
 
     return inserted, skipped, failed

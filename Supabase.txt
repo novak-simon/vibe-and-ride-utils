@@ -1,0 +1,208 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.songs_depricated (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  title text NOT NULL DEFAULT 'Unknown title'::text,
+  artist text NOT NULL DEFAULT 'Unknown artist'::text,
+  jamendo_id bigint UNIQUE,
+  speed smallint NOT NULL DEFAULT '0'::smallint,
+  provider text NOT NULL DEFAULT 'jamendo'::text,
+  audio_url text,
+  download_url text,
+  bpm smallint,
+  beat_intervals jsonb,
+  bpm_confidence smallint,
+  genre jsonb,
+  duration smallint,
+  waveform jsonb DEFAULT '[]'::jsonb,
+  shareurl text,
+  instruments jsonb,
+  vartags jsonb,
+  lang text,
+  gender text,
+  is_instrumental boolean,
+  is_electric boolean,
+  image text,
+  start_time real DEFAULT '0'::real,
+  beat_timestamps jsonb,
+  release_date text,
+  license_ccurl text,
+  content_id_free boolean,
+  license_nc boolean,
+  license_sa boolean,
+  license_nd boolean,
+  license_version real,
+  end_time real DEFAULT '0'::real,
+  artist_id bigint,
+  CONSTRAINT songs_depricated_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.workouts (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  intervals jsonb,
+  name text DEFAULT 'Unnamed Workout'::text UNIQUE,
+  author text DEFAULT 'Zwift'::text,
+  sport_type_is_bike boolean DEFAULT true,
+  description text,
+  tags jsonb,
+  CONSTRAINT workouts_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.profile_song_stats (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  song_id bigint NOT NULL,
+  is_liked boolean DEFAULT false,
+  play_count integer DEFAULT 0,
+  skip_count integer DEFAULT 0,
+  first_played_at timestamp with time zone DEFAULT (now() AT TIME ZONE 'utc'::text),
+  last_played_at timestamp with time zone DEFAULT (now() AT TIME ZONE 'utc'::text),
+  last_skipped_at timestamp with time zone,
+  total_play_time integer DEFAULT 0,
+  profile_id uuid,
+  CONSTRAINT profile_song_stats_pkey PRIMARY KEY (id),
+  CONSTRAINT profile_song_stats_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT profile_song_stats_song_id_fkey FOREIGN KEY (song_id) REFERENCES public.songs(id)
+);
+CREATE TABLE public.artists (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  name text,
+  CONSTRAINT artists_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.albums (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  name text,
+  CONSTRAINT albums_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  genre_preferences jsonb,
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.songs (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  title text NOT NULL,
+  artist_id bigint,
+  bpm smallint,
+  duration smallint,
+  genre text,
+  mood text,
+  description text,
+  release_date timestamp with time zone,
+  image text,
+  share_url text,
+  tags jsonb,
+  album_id bigint,
+  start_time real DEFAULT '0'::real,
+  end_time real DEFAULT '0'::real,
+  CONSTRAINT songs_pkey PRIMARY KEY (id),
+  CONSTRAINT songs_artist_id_fkey1 FOREIGN KEY (artist_id) REFERENCES public.artists(id),
+  CONSTRAINT songs_album_id_fkey FOREIGN KEY (album_id) REFERENCES public.albums(id)
+);
+CREATE TABLE public.audius_song_data (
+  song_id bigint NOT NULL,
+  audius_id text NOT NULL UNIQUE,
+  track_cid text UNIQUE,
+  audius_user_id text,
+  audius_permalink text,
+  audius_license text,
+  audius_license_url text,
+  audius_mood text,
+  audius_tags jsonb,
+  audius_play_count bigint,
+  audius_repost_count bigint,
+  audius_favorite_count bigint,
+  audius_comment_count bigint,
+  audius_is_downloadable boolean,
+  CONSTRAINT audius_song_data_pkey PRIMARY KEY (song_id),
+  CONSTRAINT audius_song_data_song_id_fkey FOREIGN KEY (song_id) REFERENCES public.songs(id)
+);
+CREATE TABLE public.jamendo_song_data (
+  song_id bigint NOT NULL,
+  jamendo_id bigint NOT NULL UNIQUE,
+  audio_url text,
+  download_url text,
+  waveform jsonb DEFAULT '[]'::jsonb,
+  CONSTRAINT jamendo_song_data_pkey PRIMARY KEY (song_id),
+  CONSTRAINT jamendo_song_data_song_id_fkey FOREIGN KEY (song_id) REFERENCES public.songs(id)
+);
+
+POLICIES:
+albums
+Enable read access for all users
+SELECT	
+public, anonymous sign-ins
+ 
+artists
+Enable read access for all users
+SELECT	
+public, anonymous sign-ins
+ 
+audius_song_data
+Enable read access for all users
+SELECT	
+public, anonymous sign-ins
+ 
+jamendo_song_data
+Enable read access for all users
+SELECT	
+public, anonymous sign-ins
+ 
+profile_song_stats
+Enable read access for all users [temporary]
+ALL	
+public, anonymous sign-ins
+Users can create their own song stats
+INSERT	
+authenticated, anonymous sign-ins
+Users can update their own song stats
+UPDATE	
+authenticated, anonymous sign-ins
+Users can view their own song stats
+SELECT	
+authenticated, anonymous sign-ins
+ 
+profiles
+Users can create their own profile
+INSERT	
+authenticated, anonymous sign-ins
+Users can delete their own profile
+DELETE	
+authenticated, anonymous sign-ins
+Users can update their own profile
+UPDATE	
+authenticated, anonymous sign-ins
+Users can view their own profile
+SELECT	
+authenticated, anonymous sign-ins
+ 
+songs
+Enable read access for all users
+SELECT	
+public, anonymous sign-ins
+ 
+songs_depricated
+Songs are publicly readable
+SELECT	
+anon
+Songs are really publicly readable
+SELECT	
+public, anonymous sign-ins
+ 
+workouts
+Allow all users i hope to view
+SELECT	
+anon, authenticated
++ 2 more
+Allow all users to insert
+INSERT	
+anon
+Enable read access for all users
+SELECT	
+anon
