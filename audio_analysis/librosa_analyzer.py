@@ -60,6 +60,24 @@ class LibrosaAnalyzer:
             beat_timestamps=beats,
         )
 
+    def generate_waveform(self, audio_path: str, points: int = 1000) -> List[int]:
+        """Create the amplitude envelope used by the start/end-time analyzer."""
+        if points < 1:
+            raise ValueError("Waveform points must be positive")
+
+        y, _ = librosa.load(audio_path, sr=None, mono=True)
+        if y.size == 0:
+            raise ValueError(f"Unable to decode audio from {audio_path}")
+
+        magnitudes = np.abs(y)
+        boundaries = np.linspace(0, len(magnitudes), points + 1, dtype=int)
+        waveform: List[int] = []
+        for start, end in zip(boundaries[:-1], boundaries[1:]):
+            segment = magnitudes[start:end]
+            value = float(np.max(segment)) if segment.size else 0.0
+            waveform.append(int(round(np.clip(value, 0.0, 1.0) * 100)))
+        return waveform
+
     @staticmethod
     def _confidence_for_intervals(intervals: List[float]) -> Optional[int]:
         if len(intervals) < 2:

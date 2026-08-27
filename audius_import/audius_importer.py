@@ -35,6 +35,26 @@ def load_audius_api_key() -> str:
     return value
 
 
+def resolve_audius_stream_url(track_id: str) -> str:
+    """Resolve an Audius track ID to the current downloadable stream URL."""
+    api_key = load_audius_api_key()
+    response = requests.get(
+        f"{AUDIUS_API}/tracks/{track_id}/stream",
+        params={"api_key": api_key, "app_name": "vibe-and-ride-utils"},
+        headers={"x-api-key": api_key},
+        allow_redirects=True,
+        stream=True,
+        timeout=30,
+    )
+    try:
+        response.raise_for_status()
+        if not response.url:
+            raise RuntimeError(f"Audius returned no stream URL for track {track_id}")
+        return response.url
+    finally:
+        response.close()
+
+
 def _license_is_commercial(value: Any) -> bool:
     # Audius null licenses use the platform's default commercially viable license.
     if value is None:

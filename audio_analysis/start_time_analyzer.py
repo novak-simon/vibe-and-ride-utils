@@ -28,6 +28,8 @@ class StartEndTimeAnalyzer:
         """
         Returns the closest lower value from a sorted list
         """
+        if not sorted_list:
+            return None
         if isinstance(sorted_list[0], tuple):
             sorted_list = [v[0] for v in sorted_list]
         i = bisect_right(sorted_list, value)

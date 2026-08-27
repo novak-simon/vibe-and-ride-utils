@@ -6,16 +6,24 @@ import shutil
 import tempfile
 import urllib.request
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import Iterator, Optional, List
 import numpy as np
 import math
 
-from database.songs import fetch_unanalyzed_songs, update_song_analysis, get_song_by_id, fetch_songs
+from database.songs import (
+    fetch_unanalyzed_songs,
+    update_song_analysis,
+    update_song_timing,
+    get_song_by_id,
+    fetch_songs,
+)
 from .librosa_analyzer import LibrosaAnalyzer
 from .beatnet_analyzer import BeatnetAnalyzer
 from .start_time_analyzer import StartEndTimeAnalyzer
 from models.song_model import Song
 from models.audio_analysis_model import AudioAnalysis
+from audius_import.audius_importer import resolve_audius_stream_url
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +64,35 @@ class AudioAnalysisService:
 
     def analyze_song(self, song: Song) -> None:
         try:
+            if song.audius_id:
+                song = replace(
+                    song,
+                    download_url=resolve_audius_stream_url(song.audius_id),
+                )
             with self._prepare_local_audio(song) as audio_path:
+                if song.audius_id:
+                    waveform = self.librosa_analyzer.generate_waveform(audio_path)
+                    song_with_waveform = replace(song, waveform=waveform)
+                    timing_analysis = self.start_end_time_analyzer.analyze(
+                        song_with_waveform,
+                        beatnet_analysis=AudioAnalysis(
+                            bpm=song.bpm,
+                            bpm_confidence=None,
+                            beat_intervals=[],
+                            beat_timestamps=[],
+                        ),
+                        librosa_analysis=AudioAnalysis(
+                            bpm=song.bpm,
+                            bpm_confidence=None,
+                            beat_intervals=[],
+                            beat_timestamps=[],
+                        ),
+                    )
+                    update_song_timing(self.db_client, song.id, timing_analysis)
+                    print(f"  Start time: {timing_analysis.start_time}")
+                    print(f"  End time: {timing_analysis.end_time}")
+                    return
+
                 librosa_analysis = self.librosa_analyzer.analyze(audio_path)
                 beatnet_analysis = self.beatnet_analyzer.analyze(audio_path)
                 start_end_time_analysis = self.start_end_time_analyzer.analyze(song, beatnet_analysis=beatnet_analysis, librosa_analysis=librosa_analysis)

@@ -3,15 +3,13 @@ from __future__ import annotations
 import numpy as np
 import librosa
 from typing import List, Optional, Any
-from BeatNet.BeatNet import BeatNet
-
 from audio_analysis.analysis_methods import save_in_downloads_as
 
 from models.audio_analysis_model import AudioAnalysis
 
 class BeatnetAnalyzer:
     """
-    Analyze a local audio file using BeatNet (offline mode).
+    Analyze a local audio file using BeatNet's causal online mode.
 
     This implementation attempts to be tolerant to different BeatNet return
     formats. It loads the audio (to get sr for conversions) then calls
@@ -32,7 +30,7 @@ class BeatnetAnalyzer:
                 "or adapt this module."
             ) from exc
 
-        estimator = BeatNet(1, mode="offline", inference_model="DBN", plot=[], thread=False)
+        estimator = BeatNet(1, mode="online", inference_model="PF", plot=[], thread=False)
         output = estimator.process(audio_path)
         save_in_downloads_as(output, "beatnet_output")
 
