@@ -8,4 +8,3 @@ beatnet
 madmom
 cython
 setuptools<=81
-git+https://github.com/CPJKU/madmom@main

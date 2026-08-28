@@ -94,7 +94,16 @@ class AudioAnalysisService:
                     return
 
                 librosa_analysis = self.librosa_analyzer.analyze(audio_path)
-                beatnet_analysis = self.beatnet_analyzer.analyze(audio_path)
+                try:
+                    beatnet_analysis = self.beatnet_analyzer.analyze(audio_path)
+                except (ImportError, OSError) as err:
+                    logger.warning("BeatNet unavailable; using librosa analysis only: %s", err)
+                    beatnet_analysis = AudioAnalysis(
+                        bpm=0,
+                        bpm_confidence=None,
+                        beat_intervals=[],
+                        beat_timestamps=[],
+                    )
                 start_end_time_analysis = self.start_end_time_analyzer.analyze(song, beatnet_analysis=beatnet_analysis, librosa_analysis=librosa_analysis)
                 final_analysis: AudioAnalysis = self._merge_analysis(librosa_analysis, beatnet_analysis, start_end_time_analysis)
 

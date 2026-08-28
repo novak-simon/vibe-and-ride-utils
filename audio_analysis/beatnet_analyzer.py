@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-import librosa
 from typing import List, Optional, Any
 from audio_analysis.analysis_methods import save_in_downloads_as
 
@@ -17,20 +16,15 @@ class BeatnetAnalyzer:
     """
 
     def analyze(self, audio_path: str) -> AudioAnalysis:
-        # load audio to obtain sample rate for possible conversions
-        y, sr = librosa.load(audio_path, sr=None, mono=True)
-        if y.size == 0:
-            raise ValueError(f"Unable to decode audio from {audio_path}")
-
         try:
             from BeatNet.BeatNet import BeatNet # type: ignore
-        except Exception as exc:
+        except (ImportError, OSError) as exc:
             raise ImportError(
-                "BeatNet library is required for BeatnetAnalyzer. Install it (e.g. `pip install BeatNet`) "
-                "or adapt this module."
+                "BeatNet could not be loaded because a BeatNet/madmom dependency is unavailable "
+                f"or blocked: {exc}"
             ) from exc
 
-        estimator = BeatNet(1, mode="online", inference_model="PF", plot=[], thread=False)
+        estimator = BeatNet(1, mode="offline", inference_model="DBN", plot=[], thread=False)
         output = estimator.process(audio_path)
         save_in_downloads_as(output, "beatnet_output")
 

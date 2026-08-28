@@ -8,5 +8,11 @@
     ],
     "python.testing.pytestEnabled": false,
     "python.testing.unittestEnabled": true,
-    "python-envs.defaultEnvManager": "ms-python.python:system"
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "chat.tools.terminal.autoApprove": {
+        "/^python -m py_compile audio_analysis/librosa_analyzer\\.py audio_analysis/beatnet_analyzer\\.py audio_analysis/service\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
 }

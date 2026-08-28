@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
-import librosa
+import subprocess
 from typing import List, Optional
 
 from models.audio_analysis_model import AudioAnalysis
@@ -17,19 +17,23 @@ class LibrosaAnalyzer:
     """
 
     def analyze(self, audio_path: str) -> AudioAnalysis:
-        y, sr = librosa.load(audio_path, sr=None, mono=True)
+        librosa = self._load_librosa()
+        try:
+            if librosa is not None:
+                y, sr = librosa.load(audio_path, sr=None, mono=True)
+                tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+                beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+            else:
+                raise OSError("librosa is unavailable")
+        except (ImportError, OSError):
+            y, sr = self._load_with_ffmpeg(audio_path)
+            beat_times = self._fallback_beat_times(y, sr)
         if y.size == 0:
             raise ValueError(f"Unable to decode audio from {audio_path}")
 
-        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
         bpm = []
-        if isinstance(tempo, float):
-            bpm.append(tempo)
-        else:
-            for temp in tempo:
-                bpm.append(round(temp))
-
-        beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+        if len(beat_times) > 1:
+            bpm.append(60 / float(np.mean(np.diff(beat_times))))
         save_in_downloads_as(beat_times, "librosa_beat_times")
         beats = [float(value) for value in beat_times]
         beat_intervals = [
@@ -65,7 +69,13 @@ class LibrosaAnalyzer:
         if points < 1:
             raise ValueError("Waveform points must be positive")
 
-        y, _ = librosa.load(audio_path, sr=None, mono=True)
+        librosa = self._load_librosa()
+        try:
+            if librosa is None:
+                raise OSError("librosa is unavailable")
+            y, _ = librosa.load(audio_path, sr=None, mono=True)
+        except (ImportError, OSError):
+            y, _ = self._load_with_ffmpeg(audio_path)
         if y.size == 0:
             raise ValueError(f"Unable to decode audio from {audio_path}")
 
@@ -77,6 +87,53 @@ class LibrosaAnalyzer:
             value = float(np.max(segment)) if segment.size else 0.0
             waveform.append(int(round(np.clip(value, 0.0, 1.0) * 100)))
         return waveform
+
+    @staticmethod
+    def _load_librosa():
+        try:
+            import librosa
+        except (ImportError, OSError):
+            return None
+        return librosa
+
+    @staticmethod
+    def _load_with_ffmpeg(audio_path: str) -> tuple[np.ndarray, int]:
+        sample_rate = 22050
+        result = subprocess.run(
+            [
+                "ffmpeg", "-v", "error", "-i", audio_path,
+                "-f", "f32le", "-ac", "1", "-ar", str(sample_rate), "pipe:1",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode != 0:
+            details = result.stderr.decode(errors="replace").strip()
+            raise RuntimeError(f"Unable to decode audio with ffmpeg: {details}")
+        return np.frombuffer(result.stdout, dtype=np.float32), sample_rate
+
+    @staticmethod
+    def _fallback_beat_times(y: np.ndarray, sr: int) -> np.ndarray:
+        if y.size == 0:
+            return np.array([], dtype=float)
+        hop = max(1, sr // 50)
+        energy = np.array(
+            [np.sqrt(np.mean(np.square(y[i:i + hop]))) for i in range(0, len(y), hop)]
+        )
+        if energy.size < 3:
+            return np.array([], dtype=float)
+        threshold = float(np.mean(energy) + 0.5 * np.std(energy))
+        candidates = [
+            i for i in range(1, len(energy) - 1)
+            if energy[i] >= threshold and energy[i] >= energy[i - 1] and energy[i] > energy[i + 1]
+        ]
+        minimum_gap = max(1, int(0.4 * sr / hop))
+        peaks = []
+        for peak in candidates:
+            if not peaks or peak - peaks[-1] >= minimum_gap:
+                peaks.append(peak)
+        return np.asarray(peaks, dtype=float) * hop / sr
 
     @staticmethod
     def _confidence_for_intervals(intervals: List[float]) -> Optional[int]:

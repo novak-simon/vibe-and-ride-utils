@@ -29,6 +29,12 @@ class WorkoutParser:
     def parse_zwo_string(self, content: str, file_name: str = "Unnamed workout") -> Workout:
         root = ET.fromstring(content)
         intervals = []
+        name = file_name
+        author = "Unknown"
+        sport_type = "Bike"
+        description = ""
+        tags = []
+
         for child in root:
             if child.tag == "author":
                 author = str(child.text)
