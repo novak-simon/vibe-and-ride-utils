@@ -18,7 +18,7 @@ def test_song_segment_model_serialization():
         start_time=0.0,
         end_time=32.5,
         label="intro",
-        energy=0.75,
+        relative_energy=0.75,
         loudness_lufs=-12.5,
         embedding=embedding,
     )
@@ -30,18 +30,26 @@ def test_song_segment_model_serialization():
     assert record["start_time"] == 0.0
     assert record["end_time"] == 32.5
     assert record["label"] == "intro"
-    assert record["energy"] == 0.75
+    assert record["relative_energy"] == 0.75
     assert record["loudness_lufs"] == -12.5
     assert len(record["embedding"]) == 512
 
-    # Deserialization from dict
+    # Deserialization from dict (testing relative_energy)
     restored = SongSegment.from_dict(record)
     assert restored.song_id == 101
     assert restored.segment_index == 0
     assert restored.start_time == 0.0
     assert restored.end_time == 32.5
     assert restored.label == "intro"
+    assert restored.relative_energy == 0.75
+    assert restored.loudness_lufs == -12.5
     assert len(restored.embedding) == 512
+
+    # Deserialization from legacy dict with 'energy' key
+    legacy_record = dict(record)
+    legacy_record["energy"] = legacy_record.pop("relative_energy")
+    legacy_restored = SongSegment.from_dict(legacy_record)
+    assert legacy_restored.relative_energy == 0.75
 
 
 def test_segment_analyzer_synthetic_audio():
@@ -61,7 +69,7 @@ def test_segment_analyzer_synthetic_audio():
 
     try:
         analyzer = SegmentAnalyzer(min_segment_duration=4.0)
-        segments = analyzer.analyze(temp_path, song_id=1, start_time=0.0, end_time=30.0)
+        segments = analyzer.analyze(temp_path, song_id=1, start_time=0.0, end_time=0.0)
 
         assert len(segments) >= 1
         assert segments[0].start_time == 0.0
@@ -70,8 +78,9 @@ def test_segment_analyzer_synthetic_audio():
         for seg in segments:
             assert seg.song_id == 1
             assert seg.start_time < seg.end_time
-            assert seg.energy is not None
-            assert 0.0 <= seg.energy <= 1.0
+            assert seg.relative_energy is not None
+            assert 0.0 <= seg.relative_energy <= 1.0
+            assert seg.loudness_lufs is not None
 
     finally:
         if os.path.exists(temp_path):
@@ -90,8 +99,24 @@ def test_openl3_embedding_analyzer_synthetic_audio():
 
     try:
         segments = [
-            SongSegment(song_id=42, segment_index=0, start_time=0.0, end_time=1.5, label="intro"),
-            SongSegment(song_id=42, segment_index=1, start_time=1.5, end_time=3.0, label="section_1"),
+            SongSegment(
+                song_id=42,
+                segment_index=0,
+                start_time=0.0,
+                end_time=1.5,
+                label="intro",
+                relative_energy=0.5,
+                loudness_lufs=-18.0,
+            ),
+            SongSegment(
+                song_id=42,
+                segment_index=1,
+                start_time=1.5,
+                end_time=3.0,
+                label="section_1",
+                relative_energy=1.0,
+                loudness_lufs=-10.0,
+            ),
         ]
 
         embedder = OpenL3EmbeddingAnalyzer(embedding_size=512, hop_size=0.5)
@@ -101,6 +126,8 @@ def test_openl3_embedding_analyzer_synthetic_audio():
         for seg in enriched:
             assert seg.embedding is not None
             assert len(seg.embedding) == 512
+            assert seg.relative_energy is not None
+            assert seg.loudness_lufs is not None
             # Verify unit L2 norm
             norm = np.linalg.norm(seg.embedding)
             assert abs(norm - 1.0) < 1e-3

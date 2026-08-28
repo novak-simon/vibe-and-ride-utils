@@ -111,7 +111,7 @@ class OpenL3EmbeddingAnalyzer:
                     end_time=segment.end_time,
                     duration=segment.duration,
                     label=segment.label,
-                    energy=segment.energy,
+                    relative_energy=segment.relative_energy,
                     loudness_lufs=segment.loudness_lufs,
                     embedding=vector_list,
                 )

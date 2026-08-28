@@ -28,7 +28,7 @@ class SegmentAnalyzer:
         start_time: float = 0.0,
         end_time: float = 0.0,
     ) -> List[SongSegment]:
-        """Detects structural boundaries and calculates per-segment energy and loudness."""
+        """Detects structural boundaries and calculates per-segment relative energy and loudness."""
         y, sr = librosa.load(audio_path, sr=self.target_sr, mono=True)
         total_duration = float(librosa.get_duration(y=y, sr=sr))
 
@@ -53,7 +53,7 @@ class SegmentAnalyzer:
                     start_time=actual_start,
                     end_time=actual_end,
                     label="full_track",
-                    energy=1.0,
+                    relative_energy=1.0,
                     loudness_lufs=-14.0,
                 )
             ]
@@ -96,10 +96,10 @@ class SegmentAnalyzer:
 
         num_segments = len(raw_segment_metrics)
         for idx, (s_time, e_time, rms) in enumerate(raw_segment_metrics):
-            # Normalized energy score in [0.0, 1.0]
-            energy = min(1.0, rms / global_max_rms) if global_max_rms > 0 else 0.0
+            # Intra-track relative energy in [0.0, 1.0] (fraction of the song's loudest section)
+            relative_energy = min(1.0, rms / global_max_rms) if global_max_rms > 0 else 0.0
 
-            # Approximate loudness in dBFS
+            # Objective loudness in dBFS
             loudness_db = 20.0 * np.log10(rms + 1e-9)
 
             # Assign intuitive labels
@@ -117,7 +117,7 @@ class SegmentAnalyzer:
                     start_time=round(s_time, 3),
                     end_time=round(e_time, 3),
                     label=label,
-                    energy=round(energy, 4),
+                    relative_energy=round(relative_energy, 4),
                     loudness_lufs=round(loudness_db, 2),
                 )
             )

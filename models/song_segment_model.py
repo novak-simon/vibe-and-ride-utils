@@ -12,7 +12,7 @@ class SongSegment:
     end_time: float
     duration: Optional[float] = None
     label: Optional[str] = None
-    energy: Optional[float] = None
+    relative_energy: Optional[float] = None
     loudness_lufs: Optional[float] = None
     embedding: Optional[List[float]] = None
     id: Optional[int] = None
@@ -28,11 +28,10 @@ class SongSegment:
             "start_time": round(float(self.start_time), 3),
             "end_time": round(float(self.end_time), 3),
             "label": self.label,
-            "energy": round(float(self.energy), 4) if self.energy is not None else None,
+            "relative_energy": round(float(self.relative_energy), 4) if self.relative_energy is not None else None,
             "loudness_lufs": round(float(self.loudness_lufs), 2) if self.loudness_lufs is not None else None,
         }
         if self.embedding is not None:
-            # Format as list of floats for pgvector / Supabase
             record["embedding"] = [float(x) for x in self.embedding]
         if self.id is not None:
             record["id"] = self.id
@@ -42,11 +41,15 @@ class SongSegment:
     def from_dict(cls, data: Dict[str, Any]) -> SongSegment:
         embedding = data.get("embedding")
         if isinstance(embedding, str):
-            # Parse string representation '[0.1, 0.2, ...]' if returned as raw string by DB
             cleaned = embedding.strip("[]")
             embedding = [float(x.strip()) for x in cleaned.split(",") if x.strip()] if cleaned else None
         elif isinstance(embedding, list):
             embedding = [float(x) for x in embedding]
+
+        # Support both 'relative_energy' and legacy 'energy'
+        rel_energy = data.get("relative_energy")
+        if rel_energy is None:
+            rel_energy = data.get("energy")
 
         return cls(
             id=data.get("id"),
@@ -56,7 +59,7 @@ class SongSegment:
             end_time=float(data.get("end_time", 0.0)),
             duration=float(data["duration"]) if data.get("duration") is not None else None,
             label=data.get("label"),
-            energy=float(data["energy"]) if data.get("energy") is not None else None,
+            relative_energy=float(rel_energy) if rel_energy is not None else None,
             loudness_lufs=float(data["loudness_lufs"]) if data.get("loudness_lufs") is not None else None,
             embedding=embedding,
         )
