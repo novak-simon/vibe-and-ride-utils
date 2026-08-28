@@ -156,11 +156,11 @@ class LibrosaAnalyzer:
         std_interval = float(np.std(intervals, ddof=0))
         mean_interval = float(np.mean(intervals))
         if mean_interval <= 0:
-            return None
-        processed_intervals = []
-        for i in range(len(intervals)):
-            value = intervals[i]
-            if not value > mean_interval + 0.3 * std_interval or value < mean_interval - 0.3 * std_interval:
-                processed_intervals.append(value)
+            return []
+        processed_intervals: List[float] = []
+        for value in intervals:
+            # keep value if within +/- 0.3 * std of mean
+            if (mean_interval - 0.3 * std_interval) <= value <= (mean_interval + 0.3 * std_interval):
+                processed_intervals.append(float(value))
         return processed_intervals
         

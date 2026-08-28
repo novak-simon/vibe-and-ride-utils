@@ -115,7 +115,7 @@ def audius_track_to_song(track: Dict[str, Any]) -> Song:
             "audius_comment_count": track.get("comment_count"),
             "audius_is_downloadable": track.get("is_downloadable"),
             "image": _artwork_url(track.get("artwork")),
-            "shareurl": track.get("permalink"),
+            "shareurl": f"https://audius.co{track.get('permalink')}",
             "bpm": track.get("bpm"),
             "audio_url": None,
             "download_url": None,
