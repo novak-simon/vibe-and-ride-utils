@@ -15,17 +15,6 @@ from database.methods import (
 SONG_SELECT = (
     "*, artists(*), albums(*), jamendo_song_data(*), audius_song_data(*)"
 )
-
-def _find_or_create_named(client: Any, table: str, name: Optional[str]) -> Optional[int]:
-    name = (name or "").strip()
-    if not name:
-        return None
-    rows = _execute_query(client.table(table).select("id").ilike("name", name).limit(1))
-    if rows:
-        return rows[0]["id"]
-    rows = _execute_query(client.table(table).insert({"name": name}))
-    return rows[0]["id"] if rows else None
-
 def get_song_by_id(id: int, client: Any | None = None) -> Optional[Song]:
     client = _effective_client(client)
     response = (
@@ -37,86 +26,6 @@ def get_song_by_id(id: int, client: Any | None = None) -> Optional[Song]:
     )
     records = _extract_data(response)
     return _song_from_record(records[0]) if records else None
-
-def get_jamendo_song_data_by_song_id(id: int, client: Any | None = None) -> Optional[Song]:
-    client = _effective_client(client)
-    response = (
-        client.table("songs")
-        .select(SONG_SELECT)
-        .eq("id", id)
-        .limit(1)
-        .execute()
-    )
-    records = _extract_data(response)
-    return _song_from_record(records[0]) if records else None
-
-
-def jamendo_id_exists(jamendo_id: str, client: Any | None = None) -> bool:
-    client = _effective_client(client)
-    response = (
-        client.table("jamendo_song_data")
-        .select("song_id")
-        .eq("jamendo_id", int(jamendo_id))
-        .limit(1)
-        .execute()
-    )
-    return bool(_extract_data(response))
-
-
-def add_song(song: Song, client: Any | None = None, force: bool = False) -> Song:
-    if not song.jamendo_id:
-        raise ValueError("Song must have a jamendo_id")
-
-    client = _effective_client(client)
-    artist_id = _find_or_create_named(client, "artists", song.artist)
-    album_id = _find_or_create_named(client, "albums", song.jamendo_album_name)
-    data = {
-        "title": song.title,
-        "artist_id": artist_id,
-        "album_id": album_id,
-        "duration": song.duration,
-        "genre": ", ".join(song.genre or []) or None,
-        "release_date": song.release_date,
-        "image": song.image,
-        "share_url": song.shareurl,
-        "tags": song.vartags or [],
-        "bpm": song.bpm or None,
-        "start_time": song.start_time,
-        "end_time": song.end_time,
-    }
-    if not force:
-        if jamendo_id_exists(song.jamendo_id, client=client):
-                raise ValueError(f"Song with jamendo_id={song.jamendo_id} already exists")
-        response = client.table("songs").insert(data).select("*").execute()
-    else:
-        existing = _execute_query(
-            client.table("jamendo_song_data")
-            .select("song_id")
-            .eq("jamendo_id", int(song.jamendo_id))
-            .limit(1)
-        )
-        if existing:
-            song_id = existing[0]["song_id"]
-            _execute_query(client.table("songs").update(data).eq("id", song_id))
-            response = client.table("songs").select("*").eq("id", song_id).execute()
-        else:
-            response = client.table("songs").insert(data).select("*").execute()
-    records = _extract_data(response)
-    if not records:
-        raise RuntimeError("Failed to insert song")
-
-    song_id = records[0]["id"]
-    provider_data = {
-        "song_id": song_id,
-        "jamendo_id": int(song.jamendo_id),
-        "audio_url": song.audio_url,
-        "download_url": song.download_url,
-        "waveform": song.waveform or [],
-    }
-    client.table("jamendo_song_data").upsert(
-        provider_data, on_conflict="song_id"
-    ).execute()
-    return _song_from_record({**records[0], "id": song_id, "jamendo_song_data": provider_data})
 
 def fetch_unanalyzed_songs(client, limit: int = 50) -> List[Song]:
     table = _get_table(client, "songs")
