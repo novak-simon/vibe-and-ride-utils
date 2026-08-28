@@ -1,5 +1,4 @@
 import argparse
-import sys
 from database.admin_client import get_admin_supabase
 from audio_analysis.service import AudioAnalysisService
 

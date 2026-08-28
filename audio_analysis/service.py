@@ -8,7 +8,6 @@ import urllib.request
 from contextlib import contextmanager
 from dataclasses import replace
 from typing import Iterator, Optional, List
-import numpy as np
 import math
 
 from database.songs import (

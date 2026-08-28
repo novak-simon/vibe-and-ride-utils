@@ -1,5 +1,5 @@
 from bisect import bisect_right
-from typing import Any, List, Tuple, Union
+from typing import Any, List, Tuple
 from models.song_model import Song
 from models.audio_analysis_model import AudioAnalysis
 

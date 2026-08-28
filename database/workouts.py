@@ -1,10 +1,6 @@
-from typing import Any, List, Optional, TYPE_CHECKING, Union
-
+from typing import Any
 from database.methods import _extract_data, _effective_client
 from models.workout_model import Workout
-
-if TYPE_CHECKING:
-    from workout_parsing.workout_parser import ZwoNode
 
 def upload_workout(workout: Workout, client: Any | None = None) -> None:
     client = _effective_client(client)

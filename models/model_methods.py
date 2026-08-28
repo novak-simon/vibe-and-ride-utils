@@ -1,7 +1,5 @@
 from typing import Any, Optional, List
 import ast
-import json
-from datetime import datetime, timezone
 
 def _optional_str(value: Any) -> Optional[str]:
     if value is None:
@@ -44,16 +42,6 @@ def _str_to_list(value: str) -> List:
         return result if isinstance(result, list) else []
     except (ValueError, SyntaxError):
         return []
-
-def _str_to_dict(value: str) -> dict:
-    if value is None or value == "":
-        return {}
-    if isinstance(value, dict):
-        return value
-    try:
-        return json.loads(value)
-    except (ValueError, json.JSONDecodeError):
-        return {}
 
 def estimate_cadence_from_power(power: float) -> Optional[float]:
     """

@@ -10,15 +10,15 @@ The current Supabase layout is normalized: `songs` contains shared metadata,
 while `artists` and `albums` contain names. Provider-specific fields live in
 `jamendo_song_data` and `audius_song_data`, linked by `song_id`. The analysis tool reads provider URLs through those relations and writes `bpm`,
 `start_time`, and `end_time` back to `songs`. Jamendo tracks receive full BPM
-analysis from librosa and BeatNet's online particle-filter mode. Audius tracks keep the BPM supplied by the
+analysis from librosa and BeatNet's offline DBN mode. Audius tracks keep the BPM supplied by the
 API; librosa generates an in-memory waveform for start/end-time detection, and
 resolves the current stream URL from the Audius API once per analysis before
 downloading. Only those timing fields are persisted. Beat intervals, beat timestamps, and
 BPM confidence remain in-memory because the current `songs` schema has no
 columns for them.
 
-BeatNet online mode still imports `madmom` for its particle-filter state and
-transition models, and the upstream BeatNet package declares it as a required
+BeatNet's DBN mode still imports `madmom` for its state and transition models,
+and the upstream BeatNet package declares it as a required
 dependency. It cannot be removed safely without replacing or maintaining those
 upstream components.
 

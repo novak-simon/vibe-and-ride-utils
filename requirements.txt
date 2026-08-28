@@ -2,9 +2,9 @@
 supabase
 python-dotenv
 numpy
-pyaudio
 librosa
 beatnet
 madmom
 cython
 setuptools<=81
+requests

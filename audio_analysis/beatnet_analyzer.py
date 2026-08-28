@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import List, Optional, Any
+from typing import List, Optional
 from audio_analysis.analysis_methods import save_in_downloads_as
 
 from models.audio_analysis_model import AudioAnalysis
 
 class BeatnetAnalyzer:
     """
-    Analyze a local audio file using BeatNet's causal online mode.
+    Analyze a local audio file using BeatNet's offline DBN mode.
 
     This implementation attempts to be tolerant to different BeatNet return
     formats. It loads the audio (to get sr for conversions) then calls

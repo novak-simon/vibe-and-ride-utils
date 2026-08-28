@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
-from models.model_methods import _optional_float_list, _optional_int, _optional_int_or_none, _optional_str, _str_to_list, _str_to_dict, _optional_float
+from models.model_methods import _optional_float_list, _optional_int, _optional_int_or_none, _optional_str, _str_to_list, _optional_float
 
 
 @dataclass(frozen=True)
@@ -154,5 +154,4 @@ class Song:
             "license_nc": self.license_nc,
             "license_version": self.license_version,
         }
-
 

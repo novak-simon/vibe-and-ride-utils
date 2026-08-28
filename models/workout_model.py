@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from statistics import mean
 from typing import Any, Dict, List, Optional, Union
-from models.model_methods import estimate_cadence_from_power, _is_bike_sport, _str_to_list, _optional_str, _optional_float
+from models.model_methods import estimate_cadence_from_power, _is_bike_sport, _optional_str
 
 ZwoValue = Union[str, int, float, bool, None]
 ZwoNode = Dict[str, Any]

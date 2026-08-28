@@ -75,6 +75,3 @@ def _song_from_record(record: dict[str, Any]) -> Song:
     # Provider tables have a shared song_id, not the fields on songs.
     flattened.setdefault("id", record.get("id"))
     return Song.from_dict(flattened)
-
-def _jamendo_song_data_from_record(record: dict[str, Any]) -> Song:
-    return Song.from_dict(record)
