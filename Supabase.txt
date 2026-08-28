@@ -68,6 +68,22 @@ CREATE TABLE public.songs (
   CONSTRAINT songs_artist_id_fkey1 FOREIGN KEY (artist_id) REFERENCES public.artists(id),
   CONSTRAINT songs_album_id_fkey FOREIGN KEY (album_id) REFERENCES public.albums(id)
 );
+CREATE TABLE public.song_segments (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  song_id bigint NOT NULL,
+  segment_index integer NOT NULL,
+  start_time real NOT NULL,
+  end_time real NOT NULL,
+  duration real GENERATED ALWAYS AS (end_time - start_time) STORED,
+  label text,
+  energy real,
+  loudness_lufs real,
+  embedding vector(512),
+  CONSTRAINT song_segments_pkey PRIMARY KEY (id),
+  CONSTRAINT song_segments_song_id_fkey FOREIGN KEY (song_id) REFERENCES public.songs(id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT song_segments_song_id_segment_index_key UNIQUE (song_id, segment_index)
+);
 CREATE TABLE public.audius_song_data (
   song_id bigint NOT NULL,
   audius_id text NOT NULL UNIQUE,
@@ -117,6 +133,11 @@ Enable read access for all users
 SELECT	
 public, anonymous sign-ins
  
+song_segments
+Enable read access for all users
+SELECT
+public, anonymous sign-ins
+
 profile_song_stats
 Enable read access for all users [temporary]
 ALL	

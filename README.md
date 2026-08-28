@@ -13,16 +13,18 @@ while `artists` and `albums` contain names. Provider-specific fields live in
 analysis from librosa and BeatNet's offline DBN mode. Audius tracks keep the BPM supplied by the
 API; librosa generates an in-memory waveform for start/end-time detection, and
 resolves the current stream URL from the Audius API once per analysis before
-downloading. Only those timing fields are persisted. Beat intervals, beat timestamps, and
-BPM confidence remain in-memory because the current `songs` schema has no
-columns for them.
+downloading.
 
-BeatNet's DBN mode still imports `madmom` for its state and transition models,
-and the upstream BeatNet package declares it as a required
-dependency. It cannot be removed safely without replacing or maintaining those
-upstream components.
+### Structural Segmentation & OpenL3 Embeddings
 
-Run analysis with `python tools/analyze_songs.py --limit 50` or
-`python tools/analyze_songs.py --id 123`. Configure `SUPABASE_URL` (or
-`NEXT_PUBLIC_SUPABASE_URL`) and `SUPABASE_SECRET_KEY` first. `Supabase.txt` is
-the schema reference.
+Tracks can also undergo structural audio segmentation (`librosa.segment`) and deep feature extraction using **OpenL3** (`512-dimensional embeddings`, `content_type="music"`). Structural segments (e.g. intro, verse, chorus/drop, outro) with their start/end timestamps, energy, loudness, and vector embeddings are persisted to the `song_segments` table in Supabase (indexed with `pgvector` HNSW cosine similarity).
+
+### Running Analysis
+
+Run analysis with:
+- `python tools/analyze_songs.py --limit 50` (BPM & timing analysis)
+- `python tools/analyze_songs.py --limit 50 --with-embeddings` (BPM, timing, structural segments, and OpenL3 embeddings)
+- `python tools/analyze_songs.py --limit 50 --only-embeddings` (Extract embeddings for songs that lack them)
+- `python tools/analyze_songs.py --id 123 --with-embeddings` (Analyze specific song by ID)
+
+Configure `SUPABASE_URL` (or `NEXT_PUBLIC_SUPABASE_URL`) and `SUPABASE_SECRET_KEY` first. `Supabase.txt` is the schema reference.

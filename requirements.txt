@@ -8,3 +8,4 @@ madmom
 cython
 setuptools<=81
 requests
+openl3
