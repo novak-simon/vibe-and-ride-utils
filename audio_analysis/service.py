@@ -18,6 +18,9 @@ from database.songs import (
     save_song_segments,
     get_song_by_id,
     fetch_songs,
+    fetch_song_segments,
+    update_segment_loudness,
+    fetch_segmented_songs,
 )
 from .librosa_analyzer import LibrosaAnalyzer
 from .beatnet_analyzer import BeatnetAnalyzer
@@ -48,12 +51,14 @@ class AudioAnalysisService:
         song_id: Optional[int] = None,
         with_embeddings: bool = False,
         only_embeddings: bool = False,
+        only_loudness: bool = False,
     ) -> None:
         if song_id is not None and song_id > 0:
             self.analyze_by_id(
                 song_id,
                 with_embeddings=with_embeddings,
                 only_embeddings=only_embeddings,
+                only_loudness=only_loudness,
             )
         else:
             self.analyze_batch(
@@ -61,6 +66,7 @@ class AudioAnalysisService:
                 force=force,
                 with_embeddings=with_embeddings,
                 only_embeddings=only_embeddings,
+                only_loudness=only_loudness,
             )
 
     def analyze_batch(
@@ -69,8 +75,11 @@ class AudioAnalysisService:
         force: bool = False,
         with_embeddings: bool = False,
         only_embeddings: bool = False,
+        only_loudness: bool = False,
     ) -> None:
-        if only_embeddings:
+        if only_loudness:
+            songs = fetch_segmented_songs(self.db_client, limit=limit)
+        elif only_embeddings:
             songs = fetch_unsegmented_songs(self.db_client, limit=limit)
         elif force:
             songs = fetch_songs(self.db_client, limit=limit)
@@ -87,6 +96,7 @@ class AudioAnalysisService:
                 song,
                 with_embeddings=with_embeddings,
                 only_embeddings=only_embeddings,
+                only_loudness=only_loudness,
             )
 
     def analyze_by_id(
@@ -94,6 +104,7 @@ class AudioAnalysisService:
         id: int,
         with_embeddings: bool = False,
         only_embeddings: bool = False,
+        only_loudness: bool = False,
     ) -> None:
         song = get_song_by_id(id, self.db_client)
         if song is None:
@@ -103,13 +114,16 @@ class AudioAnalysisService:
             song,
             with_embeddings=with_embeddings,
             only_embeddings=only_embeddings,
+            only_loudness=only_loudness,
         )
+
 
     def analyze_song(
         self,
         song: Song,
         with_embeddings: bool = False,
         only_embeddings: bool = False,
+        only_loudness: bool = False,
     ) -> None:
         try:
             if song.audius_id:
@@ -120,6 +134,22 @@ class AudioAnalysisService:
             with self._prepare_local_audio(song) as audio_path:
                 start_time = song.start_time or 0.0
                 end_time = song.end_time or 0.0
+
+                # --only-loudness: recompute loudness_lufs on existing segments, nothing else
+                if only_loudness:
+                    segments = fetch_song_segments(self.db_client, song.id)
+                    if not segments:
+                        print(f"  No existing segments found for song {song.id}, skipping.")
+                        return
+                    updated = self.segment_analyzer.analyze_loudness_only(
+                        audio_path=audio_path,
+                        segments=segments,
+                    )
+                    for seg in updated:
+                        if seg.id is not None and seg.loudness_lufs is not None:
+                            update_segment_loudness(self.db_client, seg.id, seg.loudness_lufs)
+                    print(f"  Updated loudness_lufs for {len(updated)} segments.")
+                    return
 
                 if not only_embeddings:
                     if song.audius_id:
@@ -197,6 +227,7 @@ class AudioAnalysisService:
         except Exception as err:
             logger.exception("Failed to analyze song %s (%s)", song.title, song.id)
             print(f"  FAILED: {err}")
+
 
     @contextmanager
     def _prepare_local_audio(self, song: Song) -> Iterator[str]:

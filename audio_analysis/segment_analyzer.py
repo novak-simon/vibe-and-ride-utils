@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Tuple
-import numpy as np
+from typing import List, Tuple
+
 import librosa
+import numpy as np
+import pyloudnorm as pyln
 
 from models.song_segment_model import SongSegment
 
@@ -30,6 +32,7 @@ class SegmentAnalyzer:
     ) -> List[SongSegment]:
         """Detects structural boundaries and calculates per-segment relative energy and loudness."""
         y, sr = librosa.load(audio_path, sr=self.target_sr, mono=True)
+        native_y, native_sr = librosa.load(audio_path, sr=None, mono=True)
         total_duration = float(librosa.get_duration(y=y, sr=sr))
 
         actual_start = max(0.0, float(start_time)) if start_time > 0 else 0.0
@@ -54,7 +57,7 @@ class SegmentAnalyzer:
                     end_time=actual_end,
                     label="full_track",
                     relative_energy=1.0,
-                    loudness_lufs=-14.0,
+                    loudness_lufs=-70.0,
                 )
             ]
 
@@ -76,7 +79,7 @@ class SegmentAnalyzer:
         # Build segment objects with energy and loudness measurements
         segments: List[SongSegment] = []
         global_max_rms = 1e-6
-        raw_segment_metrics = []
+        raw_segment_metrics: List[Tuple[float, float, float, np.ndarray]] = []
 
         for i in range(len(clean_boundaries) - 1):
             s_time = clean_boundaries[i]
@@ -92,15 +95,17 @@ class SegmentAnalyzer:
                 rms = 0.0
 
             global_max_rms = max(global_max_rms, rms)
-            raw_segment_metrics.append((s_time, e_time, rms))
+
+            native_s_idx = int(s_time * native_sr)
+            native_e_idx = int(e_time * native_sr)
+            native_seg_audio = native_y[native_s_idx:native_e_idx]
+            raw_segment_metrics.append((s_time, e_time, rms, native_seg_audio))
 
         num_segments = len(raw_segment_metrics)
-        for idx, (s_time, e_time, rms) in enumerate(raw_segment_metrics):
+        for idx, (s_time, e_time, rms, native_seg_audio) in enumerate(raw_segment_metrics):
             # Intra-track relative energy in [0.0, 1.0] (fraction of the song's loudest section)
             relative_energy = min(1.0, rms / global_max_rms) if global_max_rms > 0 else 0.0
-
-            # Objective loudness in dBFS
-            loudness_db = 20.0 * np.log10(rms + 1e-9)
+            loudness_lufs = self._calculate_segment_lufs(native_seg_audio, native_sr)
 
             # Assign intuitive labels
             if idx == 0 and s_time <= 1.0:
@@ -118,11 +123,60 @@ class SegmentAnalyzer:
                     end_time=round(e_time, 3),
                     label=label,
                     relative_energy=round(relative_energy, 4),
-                    loudness_lufs=round(loudness_db, 2),
+                    loudness_lufs=round(loudness_lufs, 2),
                 )
             )
 
         return segments
+
+    def analyze_loudness_only(
+        self,
+        audio_path: str,
+        segments: List[SongSegment],
+    ) -> List[SongSegment]:
+        """Recomputes loudness_lufs for an existing list of segments without touching anything else.
+
+        The segment boundaries (start_time / end_time) are taken as-is from the
+        supplied SongSegment objects so no boundary detection is performed.
+        Returns a new list of SongSegment instances with updated loudness_lufs.
+        """
+        from dataclasses import replace as dc_replace
+
+        native_y, native_sr = librosa.load(audio_path, sr=None, mono=True)
+
+        updated: List[SongSegment] = []
+        for seg in segments:
+            native_s_idx = int(seg.start_time * native_sr)
+            native_e_idx = int(seg.end_time * native_sr)
+            native_seg_audio = native_y[native_s_idx:native_e_idx]
+            loudness_lufs = self._calculate_segment_lufs(native_seg_audio, native_sr)
+            updated.append(dc_replace(seg, loudness_lufs=round(loudness_lufs, 2)))
+
+        return updated
+
+    def _calculate_segment_lufs(self, segment_audio: np.ndarray, sample_rate: int) -> float:
+        """Calculate integrated LUFS for a mono segment using pyloudnorm's BS.1770 implementation."""
+        if segment_audio is None or len(segment_audio) == 0:
+            return -70.0
+
+        signal = np.asarray(segment_audio, dtype=np.float32)
+        if signal.size == 0 or not np.all(np.isfinite(signal)):
+            return -70.0
+
+        peak = float(np.max(np.abs(signal)))
+        if peak <= 1e-12:
+            return -70.0
+
+        try:
+            loudness = float(pyln.Meter(sample_rate).integrated_loudness(signal))
+        except Exception as exc:
+            logger.warning("LUFS calculation failed for segment: %s", exc)
+            return -70.0
+
+        if not np.isfinite(loudness):
+            return -70.0
+
+        return loudness
 
     def _detect_boundaries(self, y: np.ndarray, sr: int, duration: float) -> List[float]:
         """Uses MFCC and Chroma recurrence features to detect musical section boundaries."""

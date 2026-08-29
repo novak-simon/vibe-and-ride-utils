@@ -9,3 +9,4 @@ cython
 setuptools<=81
 requests
 openl3
+pyloudnorm

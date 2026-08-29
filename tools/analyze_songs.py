@@ -49,6 +49,11 @@ def main() -> None:
         action="store_true",
         help="Only extract and save structural segments & embeddings for tracks that do not have them yet.",
     )
+    parser.add_argument(
+        "--only-loudness",
+        action="store_true",
+        help="Only calculate and save loudness values for tracks that do not have them yet.",
+    )
     args = parser.parse_args()
 
     client = _effective_client(client=admin_client)
@@ -59,6 +64,7 @@ def main() -> None:
         song_id=args.id,
         with_embeddings=args.with_embeddings,
         only_embeddings=args.only_embeddings,
+        only_loudness=args.only_loudness,
     )
 
 

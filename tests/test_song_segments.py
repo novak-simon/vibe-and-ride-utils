@@ -81,6 +81,68 @@ def test_segment_analyzer_synthetic_audio():
             assert seg.relative_energy is not None
             assert 0.0 <= seg.relative_energy <= 1.0
             assert seg.loudness_lufs is not None
+            assert np.isfinite(seg.loudness_lufs)
+            assert seg.loudness_lufs < 0.0
+
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def test_segment_analyzer_lufs_uses_actual_lufs_values():
+    sr = 22050
+    duration = 20.0
+    t = np.linspace(0, duration, int(duration * sr), endpoint=False)
+    quiet = 0.05 * np.sin(2 * np.pi * 220 * t[: int(duration * sr / 2)])
+    loud = 0.9 * np.sin(2 * np.pi * 880 * t[int(duration * sr / 2) :])
+    audio = np.concatenate([quiet, loud])
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        temp_path = f.name
+        sf.write(temp_path, audio, sr)
+
+    try:
+        analyzer = SegmentAnalyzer(min_segment_duration=4.0)
+        segments = analyzer.analyze(temp_path, song_id=7, start_time=0.0, end_time=0.0)
+
+        assert len(segments) >= 2
+        loudness_values = [seg.loudness_lufs for seg in segments]
+        assert all(np.isfinite(value) for value in loudness_values)
+        assert all(value < 0.0 for value in loudness_values)
+        assert max(loudness_values) - min(loudness_values) > 2.0
+
+        for seg in segments:
+            assert seg.loudness_lufs is not None
+            assert isinstance(seg.loudness_lufs, float)
+            assert np.isfinite(seg.loudness_lufs)
+            assert seg.loudness_lufs < 0.0
+
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def test_segment_analyzer_silent_audio_uses_safe_lufs_fallback():
+    sr = 22050
+    duration = 10.0
+    t = np.linspace(0, duration, int(duration * sr), endpoint=False)
+    audio = np.zeros_like(np.sin(2 * np.pi * 440 * t))
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        temp_path = f.name
+        sf.write(temp_path, audio, sr)
+
+    try:
+        analyzer = SegmentAnalyzer(min_segment_duration=4.0)
+        segments = analyzer.analyze(temp_path, song_id=9, start_time=0.0, end_time=0.0)
+
+        assert len(segments) >= 1
+        for seg in segments:
+            assert seg.loudness_lufs is not None
+            assert np.isfinite(seg.loudness_lufs)
+            assert not np.isnan(seg.loudness_lufs)
+            assert not np.isinf(seg.loudness_lufs)
+            assert seg.loudness_lufs <= -60.0
 
     finally:
         if os.path.exists(temp_path):

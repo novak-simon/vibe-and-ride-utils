@@ -138,3 +138,25 @@ def fetch_song_segments(client, song_id: int) -> List[SongSegment]:
     query = table.select("*").eq("song_id", song_id).order("segment_index")
     rows = _execute_query(query)
     return [SongSegment.from_dict(row) for row in rows]
+
+
+def update_segment_loudness(client, segment_id: int, loudness_lufs: float) -> None:
+    """Updates only the loudness_lufs field of an existing song_segments row."""
+    table = _get_table(client, "song_segments")
+    query = table.update({"loudness_lufs": round(float(loudness_lufs), 2)}).eq("id", segment_id)
+    _execute_query(query)
+
+
+def fetch_segmented_songs(client, limit: int = 50) -> List[Song]:
+    """Fetches songs that have at least one segment with a null loudness_lufs value."""
+    client = _effective_client(client)
+    segments_table = _get_table(client, "song_segments")
+    existing_records = _execute_query(segments_table.select("song_id").is_("loudness_lufs", "null"))
+    segmented_ids = list({row.get("song_id") for row in existing_records if row.get("song_id") is not None})
+
+    if not segmented_ids:
+        return []
+
+    songs_table = _get_table(client, "songs")
+    rows = _execute_query(songs_table.select(SONG_SELECT).in_("id", segmented_ids).limit(limit))
+    return [_song_from_record(row) for row in rows]
